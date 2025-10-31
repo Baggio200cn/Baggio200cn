@@ -12,7 +12,7 @@
       <h1 id="title">YouTube 双语字幕播放器（IFrame API）</h1>
       <p class="muted">
         用法：通过 URL 指定参数 videoId、en、zh。示例：
-        <code>?videoId=iG9CE55wbtY&en=/Baggio200cn/ted/sample/en.srt&zh=/Baggio200cn/ted/sample/zh.srt</code>
+        <code>?videoId=iG9CE55wbtY&en=/Baggio200cn/ted/sample/en.srt&zh=/Baggio200cn/ted/sample/zh.srt&title=Demo</code>
       </p>
       <nav><a href="../">返回站点首页</a></nav>
     </header>
@@ -27,7 +27,7 @@
           </div>
         </div>
 
-        <div class="controls card">
+        <div class="card">
           <label><input type="checkbox" id="autoPause" checked> 句末自动暂停</label>
           <label><input type="checkbox" id="autoscroll" checked> 自动滚动字幕</label>
           <button id="prev" class="btn">上一句</button>
@@ -45,12 +45,17 @@
           <h3>当前片段</h3>
           <pre id="snippet" class="snippet"></pre>
         </div>
+
+        <div class="card">
+          <h3>在线测试</h3>
+          <p class="muted">暂停视频后，点击下方按钮将当前英文句子送至“在线完形填空测试”，并自动生成题目。</p>
+          <a id="toTest" class="btn" href="../test/" target="_blank" rel="noopener">在在线测试中打开当前片段</a>
+        </div>
       </aside>
     </main>
   </div>
 
   <script src="./app.js"></script>
-  <!-- 异步加载 YouTube IFrame Player API（与你截图一致的官方用法） -->
   <script async src="https://www.youtube.com/iframe_api"></script>
 </body>
 </html>
