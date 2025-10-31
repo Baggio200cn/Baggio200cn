@@ -1,18 +1,27 @@
-/* 全局变量（与 YouTube IFrame API 交互） */
-let YTPlayer, segsEn = [], segsZh = [], curIdx = -1, gParams;
-
+/* 全局：与 YouTube IFrame API 交互 */
+let YTPlayer, segsEn = [], segsZh = [], curIdx = -1, gParams, zhGloss = {};
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
-/* 读取 URL 参数：?videoId=xxx&en=/path/en.srt&zh=/path/zh.srt&title=... */
+/* URL 参数 */
 function getParams() {
   const u = new URL(location.href);
-  return {
+  const p = {
     videoId: u.searchParams.get('videoId') || 'iG9CE55wbtY',
     en: u.searchParams.get('en') || '../ted/sample/en.srt',
     zh: u.searchParams.get('zh') || '../ted/sample/zh.srt',
-    title: u.searchParams.get('title') || '示例演讲'
+    title: u.searchParams.get('title') || '示例演讲',
+    zhGloss: u.searchParams.get('zhGloss') || ''
   };
+  // 若未显式提供 zhGloss，尝试从 zh 路径猜测 glossary_zh.json
+  if (!p.zhGloss && p.zh) {
+    try {
+      const url = new URL(p.zh, location.href);
+      const guessed = url.pathname.replace(/\/[^\/]+$/, '/glossary_zh.json');
+      p.zhGloss = guessed;
+    } catch (_) {}
+  }
+  return p;
 }
 
 /* 解析 SRT */
@@ -44,20 +53,28 @@ function formatTime(sec){
   return (h!=='00'?h+':':'')+m+':'+s;
 }
 
-/* IFrame API声明的全局回调 */
+/* IFrame API 回调（必须存在） */
 function onYouTubeIframeAPIReady() {}
 
+/* 入口 */
 async function setup() {
   gParams = getParams();
   $('#title').textContent = 'YouTube 双语字幕播放器 — ' + gParams.title;
 
-  // 加载字幕
+  // 加载字幕与中文注释
   const [enText, zhText] = await Promise.all([
     fetch(gParams.en).then(r => r.text()),
     fetch(gParams.zh).then(r => r.text())
   ]);
   segsEn = parseSRT(enText);
   segsZh = parseSRT(zhText);
+
+  try {
+    if (gParams.zhGloss) {
+      const res = await fetch(gParams.zhGloss, { cache:'no-store' });
+      if (res.ok) zhGloss = await res.json();
+    }
+  } catch (_) {}
 
   // 时间轴
   const tl = $('#timeline');
@@ -67,12 +84,12 @@ async function setup() {
     const div = document.createElement('div');
     div.className = 'seg';
     div.dataset.idx = String(idx);
-    div.innerHTML = `<div class="muted">${formatTime(s.start)} → ${formatTime(s.end)}</div><div>${s.text}</div><div class="muted">${zh}</div>`;
+    div.innerHTML = `<div class="muted">${formatTime(s.start)} → ${formatTime(s.end)}</div><div>${escapeHtml(s.text)}</div><div class="muted">${escapeHtml(zh)}</div>`;
     div.addEventListener('click', () => seekTo(idx));
     tl.appendChild(div);
   });
 
-  // 创建播放器
+  // 播放器
   YTPlayer = new YT.Player('player', {
     videoId: gParams.videoId,
     playerVars: { rel:0, modestbranding:1, playsinline:1, controls:1 },
@@ -85,10 +102,16 @@ async function setup() {
   // 控件
   $('#prev').addEventListener('click', () => jump(-1));
   $('#next').addEventListener('click', () => jump(+1));
+  $('#speak').addEventListener('click', speakCurrent);
+  $('#clearChat').addEventListener('click', () => { $('#chat').innerHTML=''; $('#snippet').textContent=''; });
+  $('#extractVocab').addEventListener('click', extractVocabFromCurrent);
+
+  // 初始化“在线测试”按钮
+  updateTestLink('');
 }
 window.addEventListener('load', setup);
 
-/* 动画循环：同步字幕 + 句末自动暂停 */
+/* 刷新：同步字幕 + 句末自动暂停 */
 function tick() {
   if (!YTPlayer || typeof YTPlayer.getCurrentTime !== 'function') return requestAnimationFrame(tick);
   const t = YTPlayer.getCurrentTime();
@@ -131,10 +154,84 @@ function onPaused() {
   if (curIdx === -1) return;
   const en = segsEn[curIdx]?.text || '';
   const zh = segsZh[curIdx]?.text || '';
+  addMsg('user', en + (zh ? `\n${zh}` : ''));
   $('#snippet').textContent = `${en}\n${zh ? zh : ''}`;
   updateTestLink(en);
 }
 
+/* 对话框与朗读 */
+function addMsg(role, text) {
+  const box = $('#chat');
+  const div = document.createElement('div');
+  div.className = 'msg';
+  div.innerHTML = `<span class="role">${role === 'user' ? '你' : 'Bot'}：</span><span>${escapeHtml(text).replace(/\n/g,'<br>')}</span>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+function speak(text) {
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } catch (_) {}
+}
+function speakCurrent() {
+  const en = segsEn[curIdx]?.text || '';
+  if (en) speak(en);
+}
+
+/* 生词提取与注释 */
+function tokenizeEN(s){ return (s.match(/[A-Za-z']+/g) || []).map(w=>w.toLowerCase()); }
+function pickKeywords(s) {
+  const stop = new Set(['the','be','to','of','and','a','in','that','have','i','it','for','not','on','with','he','as','you','do','at','this','but','his','by','from','they','we','say','her','she','or','an','will','my','one','all','would','there','their','what','so','up','out','if','about','who','get','which','go','me','when','make','can','like','no','just','him','know','take','into','your','good','some','could','them','see','other','than','then','now','look','only','come','its','over','think','also','back','after','use','two','how','our','work','first','well','way','even','new','want','because','any','these','give','day','most','us']);
+  const words = tokenizeEN(s).filter(w => w.length >= 5 && !stop.has(w));
+  const uniq = Array.from(new Set(words));
+  return uniq.slice(0, 12);
+}
+async function fetchEnDef(word) {
+  try {
+    const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const def = j?.[0]?.meanings?.[0]?.definitions?.[0]?.definition || '';
+    const pos = j?.[0]?.meanings?.[0]?.partOfSpeech || '';
+    return { def, pos };
+  } catch { return null; }
+}
+function getZhGloss(word) {
+  const w = word.toLowerCase();
+  return zhGloss?.[w] || zhGloss?.[word] || '';
+}
+async function extractVocabFromCurrent() {
+  const en = segsEn[curIdx]?.text || '';
+  if (!en) return;
+  const keys = pickKeywords(en);
+  const list = $('#vocabList');
+  list.innerHTML = '<div class="muted">正在提取与加载释义…</div>';
+  const rows = [];
+  for (const w of keys) {
+    const info = await fetchEnDef(w);
+    const zh = getZhGloss(w);
+    rows.push({ w, info, zh });
+  }
+  list.innerHTML = '';
+  if (rows.length === 0) {
+    list.innerHTML = '<div class="muted">本句未找到合适的候选生词。</div>';
+    return;
+  }
+  for (const r of rows) {
+    const div = document.createElement('div');
+    div.className = 'vocab-item';
+    const pos = r.info?.pos ? `<span class="badge">${escapeHtml(r.info.pos)}</span>` : '';
+    const enDef = r.info?.def ? `<div class="muted">${escapeHtml(r.info.def)}</div>` : '';
+    const zh = r.zh ? `<div>中文：${escapeHtml(r.zh)}</div>` : `<div class="muted">中文注释：未提供</div>`;
+    div.innerHTML = `<div><strong>${escapeHtml(r.w)}</strong>${pos}</div>${enDef}${zh}`;
+    list.appendChild(div);
+  }
+}
+
+/* 跳转到在线测试（把当前英文句子带过去并自动出题） */
 function updateTestLink(text) {
   const btn = $('#toTest');
   if (!btn) return;
@@ -145,3 +242,6 @@ function updateTestLink(text) {
   });
   btn.href = `../test/?${q.toString()}`;
 }
+
+/* 工具 */
+function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
