@@ -18,3 +18,6 @@
 提示
 - 默认生成参数：`--level B2 --vocab 8000 --goals listening speaking vocabulary --subtitle-format plain_text --output-language bilingual --output-style complete`。
 - 你可以修改工作流 `.github/workflows/publish-learning-packages.yml` 来更改默认参数。
+- my_talk_20251031T035028Z git add docs/index.md git commit -m docs: add link to my_talk_20251031T035028Z on Pages index git push
+- [my_talk_20251031T035028Z](./my_talk_20251031T035028Z)
+- [my_talk_20251031T035028Z](./my_talk_20251031T035028Z)
