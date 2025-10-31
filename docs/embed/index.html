@@ -5,14 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>YouTube + 双语字幕播放器</title>
   <link rel="stylesheet" href="./styles.css" />
+  <style>
+    .chat { max-height: 360px; overflow: auto; border:1px solid #1f2937; border-radius:8px; padding:8px; background:#0f172a; margin-bottom:8px; }
+    .msg { margin:6px 0; }
+    .msg .role { font-weight:700; margin-right:6px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .btn { background:#1f2937; color:#e5e7eb; border:1px solid #374151; border-radius:8px; padding:6px 10px; cursor:pointer; }
+    .muted { color:#a1a1aa; }
+    .vocab { max-height: 280px; overflow:auto; border:1px solid #1f2937; border-radius:8px; padding:8px; background:#0f172a; }
+    .vocab-item { padding:6px 8px; border-bottom:1px dashed #334155; }
+    .vocab-item:last-child { border-bottom: none; }
+    .badge { font-size:12px; padding:2px 6px; border-radius:9999px; background:#0b1220; border:1px solid #334155; color:#cbd5e1; margin-left:6px; }
+    .snippet { min-height:80px; background:#0f172a; color:#e5e7eb; border:1px solid #334155; border-radius:8px; padding:8px; overflow:auto; }
+  </style>
 </head>
 <body>
   <div class="wrap">
     <header class="top">
       <h1 id="title">YouTube 双语字幕播放器（IFrame API）</h1>
       <p class="muted">
-        用法：通过 URL 指定参数 videoId、en、zh。示例：
-        <code>?videoId=iG9CE55wbtY&en=/Baggio200cn/ted/sample/en.srt&zh=/Baggio200cn/ted/sample/zh.srt&title=Demo</code>
+        用法：通过 URL 指定 videoId、en、zh（可选 zhGloss）。示例：
+        <code>?videoId=gN9dlisaQVM&en=/Baggio200cn/ted/gN9dlisaQVM/en.srt&zh=/Baggio200cn/ted/gN9dlisaQVM/zh.srt&title=TED%20Test&zhGloss=/Baggio200cn/ted/gN9dlisaQVM/glossary_zh.json</code>
       </p>
       <nav><a href="../">返回站点首页</a></nav>
     </header>
@@ -42,14 +55,24 @@
 
       <aside class="right">
         <div class="card">
-          <h3>当前片段</h3>
+          <h3>学习对话框</h3>
+          <div id="chat" class="chat"></div>
+          <div class="row">
+            <button id="speak" class="btn">朗读上一句</button>
+            <a id="toTest" class="btn" href="../test/" target="_blank" rel="noopener">在“在线测试”中生成题目</a>
+            <button id="clearChat" class="btn">清空</button>
+          </div>
+          <p class="muted">提示：暂停视频时，这里会自动加入刚才播放的英文字幕文本。</p>
           <pre id="snippet" class="snippet"></pre>
         </div>
 
         <div class="card">
-          <h3>在线测试</h3>
-          <p class="muted">暂停视频后，点击下方按钮将当前英文句子送至“在线完形填空测试”，并自动生成题目。</p>
-          <a id="toTest" class="btn" href="../test/" target="_blank" rel="noopener">在在线测试中打开当前片段</a>
+          <h3>生词与注释</h3>
+          <p class="muted">从当前英文句子里自动筛选候选生词，并展示英文释义与（如提供）中文注释。</p>
+          <div class="row">
+            <button id="extractVocab" class="btn">提取生词（本句）</button>
+          </div>
+          <div id="vocabList" class="vocab"></div>
         </div>
       </aside>
     </main>
