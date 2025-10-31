@@ -28,10 +28,13 @@ class MaterialLibrary:
     
     def add_url(self, url: str, title: str = "", description: str = "") -> Dict:
         """Add a TED talk URL to the library"""
+        # Generate unique ID based on max existing ID to avoid duplicates
+        next_id = max([m['id'] for m in self.materials], default=0) + 1
+        
         material = {
-            "id": len(self.materials) + 1,
+            "id": next_id,
             "url": url,
-            "title": title or f"TED Talk {len(self.materials) + 1}",
+            "title": title or f"TED Talk {next_id}",
             "description": description,
             "date_added": datetime.now().isoformat(),
             "processed": False,
