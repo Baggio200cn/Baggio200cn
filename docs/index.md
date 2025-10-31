@@ -7,6 +7,9 @@
 - 推送到 main 分支后，GitHub Actions 会自动生成 `docs/my_talk.md` 并提交回仓库。
 - 启用 Pages（Settings → Pages → Deploy from a branch → main /docs）后，网页会自动更新展示生成的学习包。
 
+已生成的学习包
+- [my_talk](./my_talk.md)
+
 参考
 - 使用指南：[USAGE_GUIDE.md](../USAGE_GUIDE.md)
 - 功能说明：[FEATURES.md](../FEATURES.md)
