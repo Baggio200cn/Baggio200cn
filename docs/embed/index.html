@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YouTube + 双语字幕播放器</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <h1 id="title">YouTube 双语字幕播放器（IFrame API）</h1>
+      <p class="muted">
+        用法：通过 URL 指定参数 videoId、en、zh。示例：
+        <code>?videoId=iG9CE55wbtY&en=/Baggio200cn/ted/sample/en.srt&zh=/Baggio200cn/ted/sample/zh.srt</code>
+      </p>
+      <nav><a href="../">返回站点首页</a></nav>
+    </header>
+
+    <main class="layout">
+      <section class="left">
+        <div id="playerBox" class="player-box">
+          <div id="player"></div>
+          <div class="subs">
+            <div id="sub-en" class="sub en"></div>
+            <div id="sub-zh" class="sub zh"></div>
+          </div>
+        </div>
+
+        <div class="controls card">
+          <label><input type="checkbox" id="autoPause" checked> 句末自动暂停</label>
+          <label><input type="checkbox" id="autoscroll" checked> 自动滚动字幕</label>
+          <button id="prev" class="btn">上一句</button>
+          <button id="next" class="btn">下一句</button>
+        </div>
+
+        <div class="card">
+          <h3>字幕时间轴（可点击跳转）</h3>
+          <div id="timeline" class="timeline"></div>
+        </div>
+      </section>
+
+      <aside class="right">
+        <div class="card">
+          <h3>当前片段</h3>
+          <pre id="snippet" class="snippet"></pre>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+  <!-- 异步加载 YouTube IFrame Player API（与你截图一致的官方用法） -->
+  <script async src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
