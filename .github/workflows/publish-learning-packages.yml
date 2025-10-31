@@ -1,0 +1,50 @@
+name: Publish learning packages to Pages
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'data/transcripts/**.txt'
+      - 'data/transcripts/**.srt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Ensure docs folder
+        run: mkdir -p docs
+
+      - name: Generate packages for each transcript
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for f in data/transcripts/*.txt data/transcripts/*.srt; do
+            [ -e "$f" ] || continue
+            name="$(basename "${f%.*}")"
+            echo "Generating ${name}.md from $f"
+            python3 ted_cli.py \
+              -i "$f" \
+              -o "docs/${name}.md" \
+              --level B2 \
+              --vocab 8000 \
+              --goals listening speaking vocabulary \
+              --subtitle-format plain_text \
+              --output-language bilingual \
+              --output-style complete
+          done
+
+      - name: Commit and push generated docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/*.md || true
+          git commit -m "Auto-generate learning packages from transcripts" || echo "No changes to commit"
+          git push
