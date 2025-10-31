@@ -30,3 +30,14 @@ Paste any English text to automatically generate multiple-choice cloze questions
 - [my_talk_20251031T035028Z](./my_talk_20251031T035028Z)
 - [my_talk_20251031T035028Z](./my_talk_20251031T035028Z)
   - [Online Test（在线测试）](./test/)
+  ## 演示与入口
+
+- 测试视频（YouTube + 双语字幕，自动加载播放器）
+  - 使用你自己的字幕（推荐）：
+    - [一键播放 gN9dlisaQVM](./embed/?videoId=gN9dlisaQVM&en=/Baggio200cn/ted/gN9dlisaQVM/en.srt&zh=/Baggio200cn/ted/gN9dlisaQVM/zh.srt&title=TED%20Test%20Video)
+  - 若你还没放好该视频的 .srt，可临时用示例字幕验证功能：
+    - [用示例字幕打开 gN9dlisaQVM](./embed/?videoId=gN9dlisaQVM&en=/Baggio200cn/ted/sample/en.srt&zh=/Baggio200cn/ted/sample/zh.srt&title=TED%20Test%20Video)
+
+- 在线测试（完形填空）
+  - [点击进入在线测试页](./test/)
+  - 在播放器内暂停时也可点击“在在线测试中打开当前片段”，会把当前英文句子自动带到测试页并立即生成题目。
