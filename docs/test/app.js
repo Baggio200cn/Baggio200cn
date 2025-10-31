@@ -2,6 +2,16 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+  function getParams() {
+    const u = new URL(location.href);
+    return {
+      text: u.searchParams.get('text') || '',
+      textUrl: u.searchParams.get('textUrl') || '',
+      autogen: u.searchParams.get('autogen') || '',
+      title: u.searchParams.get('title') || ''
+    };
+  }
+
   const stopwords = new Set([
     "the","be","to","of","and","a","in","that","have","i","it","for","not","on","with","he","as",
     "you","do","at","this","but","his","by","from","they","we","say","her","she","or","an","will",
@@ -49,11 +59,9 @@ online test that turns a paragraph into cloze questions. Try it now!`;
 
     const { quiz, preview } = makeClozeQuiz(raw, n, k);
 
-    // 渲染预览
     previewEl.textContent = preview;
     previewCard.style.display = "block";
 
-    // 渲染题目
     renderQuiz(quiz);
     quizCard.style.display = "block";
     scoreEl.textContent = "";
@@ -66,7 +74,6 @@ online test that turns a paragraph into cloze questions. Try it now!`;
       if (q.answer === q.userChoice) correct++;
     });
     scoreEl.textContent = `得分：${correct} / ${questions.length}`;
-    // 把错误题目的选项边框标红
     questions.forEach((q) => {
       const block = document.getElementById(q.id);
       block.style.borderColor = (q.answer === q.userChoice) ? "#16a34a" : "#dc2626";
@@ -84,12 +91,10 @@ online test that turns a paragraph into cloze questions. Try it now!`;
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
   function tokenize(text) {
-    // 只取英文词，保留撇号，统一小写
     return (text.match(/[A-Za-z']+/g) || []).map(w => w.toLowerCase());
   }
 
   function pickCandidates(words) {
-    // 候选词：长度>=5、不是停用词、包含字母
     return Array.from(new Set(words)).filter(w => w.length >= 5 && !stopwords.has(w));
   }
 
@@ -111,13 +116,11 @@ online test that turns a paragraph into cloze questions. Try it now!`;
       return { quiz: [], preview: raw };
     }
     const targets = sample(candidates, nQuestions);
-    // 生成带占位符的预览文本
     let preview = raw;
     targets.forEach((w, i) => {
       const rx = new RegExp(`\\b${escapeReg(w)}\\b`, "i");
       preview = preview.replace(rx, `____(${i+1})____`);
     });
-    // 题目：每题1个正确 + (nOptions-1)个干扰项
     const quiz = targets.map((ans, i) => {
       const distractors = sample(candidates, nOptions - 1, new Set([ans]));
       const options = shuffle([ans, ...distractors]);
@@ -146,7 +149,6 @@ online test that turns a paragraph into cloze questions. Try it now!`;
         list.appendChild(row);
       });
       block.appendChild(list);
-      // 存正确答案到 data-attr，提交时读取
       block.dataset.answer = q.answer;
       quizEl.appendChild(block);
     });
@@ -177,4 +179,25 @@ online test that turns a paragraph into cloze questions. Try it now!`;
       .replaceAll(">","&gt;").replaceAll('"',"&quot;")
       .replaceAll("'","&#39;");
   }
+
+  // 页面加载时，支持从 URL 预填并自动出题
+  window.addEventListener("load", async () => {
+    const p = getParams();
+    if (p.title) {
+      // 可选：把标题反映到文档标题
+      try { document.title = p.title + " — Online Test"; } catch (_) {}
+    }
+    if (p.textUrl) {
+      try {
+        const t = await fetch(p.textUrl).then(r => r.text());
+        if (t && !textEl.value.trim()) textEl.value = t.trim();
+      } catch (_) {}
+    }
+    if (p.text && !textEl.value.trim()) {
+      textEl.value = p.text;
+    }
+    if ((p.autogen === "1" || p.autogen === "true") && textEl.value.trim()) {
+      $("#generate").click();
+    }
+  });
 })();
