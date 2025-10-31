@@ -3,8 +3,8 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'data/transcripts/**.txt'
-      - 'data/transcripts/**.srt'
+      - 'data/transcripts/**/*.txt'
+      - 'data/transcripts/**/*.srt'
   workflow_dispatch:
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for f in data/transcripts/*.txt data/transcripts/*.srt; do
+          for f in data/transcripts/*.txt data/transcripts/*.srt data/transcripts/**/*.txt data/transcripts/**/*.srt; do
             [ -e "$f" ] || continue
             name="$(basename "${f%.*}")"
             echo "Generating ${name}.md from $f"
@@ -36,9 +36,9 @@ jobs:
               --level B2 \
               --vocab 8000 \
               --goals listening speaking vocabulary \
-              --subtitle-format plain_text \
-              --output-language bilingual \
-              --output-style complete
+              --format plain_text \
+              --lang bilingual \
+              --style complete
           done
 
       - name: Commit and push generated docs
