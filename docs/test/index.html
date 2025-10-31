@@ -362,10 +362,8 @@
                 // Generate distractors (wrong options)
                 const allWords = text.match(/\b[a-zA-Z]{4,12}\b/g) || [];
                 const uniqueWords = [...new Set(allWords.map(w => w.toLowerCase()))];
-                const distractors = uniqueWords
-                    .filter(w => w.toLowerCase() !== targetWord.toLowerCase())
-                    .sort(() => 0.5 - Math.random())
-                    .slice(0, 3);
+                const filteredWords = uniqueWords.filter(w => w !== targetWord.toLowerCase());
+                const distractors = shuffleArray(filteredWords).slice(0, 3);
 
                 // Create options array with correct answer and distractors
                 const options = shuffleArray([
@@ -408,7 +406,21 @@
                 
                 const questionText = document.createElement('div');
                 questionText.className = 'question-text';
-                questionText.innerHTML = `<strong>Question ${qIndex + 1}:</strong> ${question.question}`;
+                const strongTag = document.createElement('strong');
+                strongTag.textContent = `Question ${qIndex + 1}: `;
+                questionText.appendChild(strongTag);
+                
+                // Safely parse and render the question with the blank
+                const questionParts = question.question.split('<span class="blank">______</span>');
+                questionText.appendChild(document.createTextNode(questionParts[0]));
+                const blankSpan = document.createElement('span');
+                blankSpan.className = 'blank';
+                blankSpan.textContent = '______';
+                questionText.appendChild(blankSpan);
+                if (questionParts[1]) {
+                    questionText.appendChild(document.createTextNode(questionParts[1]));
+                }
+                
                 questionDiv.appendChild(questionText);
 
                 const optionsDiv = document.createElement('div');
