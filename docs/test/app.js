@@ -16,7 +16,36 @@ online test that turns a paragraph into cloze questions. Try it now!`; });
   function tokenize(text){ return (text.match(/[A-Za-z']+/g) || []).map(w=>w.toLowerCase()); }
   function pickCandidates(words){ return Array.from(new Set(words)).filter(w=>w.length>=5 && !stopwords.has(w)); }
   function sample(arr,n,exclude=new Set()){ const pool=arr.filter(x=>!exclude.has(x)); const r=[]; while(r.length<Math.min(n,pool.length)){ const idx=Math.floor(Math.random()*pool.length); const x=pool.splice(idx,1)[0]; r.push(x);} return r; }
-  function makeClozeQuiz(raw,nQuestions,nOptions){ const words=tokenize(raw); const candidates=pickCandidates(words); if(candidates.length===0){ return {quiz:[], preview:raw}; } const targets=sample(candidates,nQuestions); let preview=raw; targets.forEach((w,i)=>{ const rx=new RegExp(`\\b${escapeReg(w)}\\b`,`i`); preview=preview.replace(rx,`____(${i+1})____`); }); const quiz=targets.map((ans,i)=>{ const distractors=sample(candidates,nOptions-1,new Set([ans])); const options=shuffle([ans, ...distractors]); return { id:`q${i+1}`, index:i+1, stem:`(${i+1}) 选择正确单词填空`, answer:ans, options }; }); return {quiz, preview}; }
+  function makeClozeQuiz(raw, nQuestions, nOptions) {
+    // Tokenize the input text
+    const words = tokenize(raw);
+    // Pick candidate words for cloze deletion
+    const candidates = pickCandidates(words);
+    if (candidates.length === 0) {
+      return { quiz: [], preview: raw };
+    }
+    // Randomly sample target words for the quiz
+    const targets = sample(candidates, nQuestions);
+    // Create the preview text with blanks
+    let preview = raw;
+    targets.forEach((w, i) => {
+      const rx = new RegExp(`\\b${escapeReg(w)}\\b`, `i`);
+      preview = preview.replace(rx, `____(${i + 1})____`);
+    });
+    // Build the quiz questions
+    const quiz = targets.map((ans, i) => {
+      const distractors = sample(candidates, nOptions - 1, new Set([ans]));
+      const options = shuffle([ans, ...distractors]);
+      return {
+        id: `q${i + 1}`,
+        index: i + 1,
+        stem: `(${i + 1}) 选择正确单词填空`,
+        answer: ans,
+        options
+      };
+    });
+    return { quiz, preview };
+  }
   function renderQuiz(quiz){ quizEl.innerHTML=""; quiz.forEach(q=>{ const block=document.createElement("div"); block.className="q"; block.id=q.id; block.innerHTML=`<h3>${escapeHtml(q.stem)}</h3>`; const list=document.createElement("div"); list.className="choices"; q.options.forEach((opt,j)=>{ const name=q.id; const id=`${q.id}_o${j+1}`; const row=document.createElement("div"); row.innerHTML=`
           <label for="${id}" data-val="${escapeHtml(opt)}">
             <input type="radio" name="${name}" id="${id}" value="${escapeHtml(opt)}"> ${escapeHtml(opt)}
