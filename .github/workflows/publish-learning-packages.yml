@@ -1,0 +1,62 @@
+name: Publish Learning Packages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'data/transcripts/*.txt'
+      - 'data/transcripts/*.srt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Ensure docs directory exists
+        run: mkdir -p docs
+      
+      - name: Generate learning packages
+        run: |
+          # Process all transcript files in data/transcripts/
+          for transcript in data/transcripts/*.txt data/transcripts/*.srt; do
+            # Check if file exists (glob may not match anything)
+            if [ -f "$transcript" ]; then
+              # Extract filename without extension
+              filename=$(basename "$transcript")
+              basename="${filename%.*}"
+              
+              echo "Processing: $transcript -> docs/${basename}.md"
+              
+              # Generate learning package
+              python3 ted_cli.py -i "$transcript" -o "docs/${basename}.md"
+            fi
+          done
+      
+      - name: Commit and push generated docs
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Add generated files
+          git add docs/
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Auto-generate learning packages from transcripts"
+            git push
+          fi
