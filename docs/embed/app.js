@@ -1,141 +1,109 @@
-/* 全局变量（与 YouTube IFrame API 交互） */
-let YTPlayer, segsEn = [], segsZh = [], curIdx = -1;
-
+let YTPlayer, segsEn = [], segsZh = [], curIdx = -1, gParams, zhGloss = {};
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
-/* 读取 URL 参数：?videoId=xxx&en=/path/en.srt&zh=/path/zh.srt&title=... */
 function getParams() {
   const u = new URL(location.href);
-  return {
-    videoId: u.searchParams.get('videoId') || 'iG9CE55wbtY', // 默认：Ken Robinson talk（示例）
+  const p = {
+    videoId: u.searchParams.get('videoId') || 'iG9CE55wbtY',
     en: u.searchParams.get('en') || '../ted/sample/en.srt',
     zh: u.searchParams.get('zh') || '../ted/sample/zh.srt',
-    title: u.searchParams.get('title') || '示例演讲（可通过 URL title 参数修改）'
+    title: u.searchParams.get('title') || '示例演讲',
+    zhGloss: u.searchParams.get('zhGloss') || ''
   };
+  if (!p.zhGloss && p.zh) {
+    try {
+      const url = new URL(p.zh, location.href);
+      const guessed = url.pathname.replace(/\/[^\/]+$/, '/glossary_zh.json');
+      p.zhGloss = guessed;
+    } catch (_) {}
+  }
+  return p;
 }
 
-/* 解析 SRT */
 function parseSRT(srt) {
   const lines = srt.replace(/\r/g, '').split('\n');
-  const items = [];
-  let i = 0;
+  const items = []; let i = 0;
   while (i < lines.length) {
-    // 跳过序号
-    while (i < lines.length && !/^\d+$/.test(lines[i].trim())) i++;
-    i++;
-    if (i >= lines.length) break;
+    while (i < lines.length && !/^\d+$/.test(lines[i].trim())) i++; i++; if (i >= lines.length) break;
     const m = lines[i].match(/(\d+):(\d+):(\d+),(\d+)\s+-->\s+(\d+):(\d+):(\d+),(\d+)/);
     if (!m) { i++; continue; }
-    const start = toSec(m[1],m[2],m[3],m[4]);
-    const end   = toSec(m[5],m[6],m[7],m[8]);
-    i++;
-    const buf = [];
-    while (i < lines.length && lines[i].trim() !== '') { buf.push(lines[i]); i++; }
-    const text = buf.join(' ').replace(/<[^>]+>/g,'').trim();
-    items.push({ start, end, text });
+    const start = toSec(m[1],m[2],m[3],m[4]), end = toSec(m[5],m[6],m[7],m[8]); i++;
+    const buf = []; while (i < lines.length && lines[i].trim() !== '') { buf.push(lines[i]); i++; }
+    const text = buf.join(' ').replace(/<[^>]+>/g,'').trim(); items.push({ start, end, text });
     while (i < lines.length && lines[i].trim() === '') i++;
   }
   return items;
 }
 function toSec(h,m,s,ms){ return (+h)*3600+(+m)*60+(+s)+(+ms)/1000; }
-function formatTime(sec){
-  const s = Math.floor(sec % 60).toString().padStart(2,'0');
-  const m = Math.floor((sec/60)%60).toString().padStart(2,'0');
-  const h = Math.floor(sec/3600).toString().padStart(2,'0');
-  return (h!=='00'?h+':':'')+m+':'+s;
-}
+function formatTime(sec){ const s = Math.floor(sec % 60).toString().padStart(2,'0'); const m = Math.floor((sec/60)%60).toString().padStart(2,'0'); const h = Math.floor(sec/3600).toString().padStart(2,'0'); return (h!=='00'?h+':':'')+m+':'+s; }
+function onYouTubeIframeAPIReady() {}
 
-/* IFrame API 要求的全局回调（加载完 API 后会调用） */
-function onYouTubeIframeAPIReady() {
-  // 真正初始化在 setup() 里
-}
-
-/* 初始化：加载字幕 + 创建播放器 + 挂事件 */
 async function setup() {
-  const params = getParams();
-  $('#title').textContent = 'YouTube 双语字幕播放器 — ' + params.title;
-
-  // 加载字幕
+  gParams = getParams();
+  $('#title').textContent = 'YouTube 双语字幕播放器 — ' + gParams.title;
   const [enText, zhText] = await Promise.all([
-    fetch(params.en).then(r => r.text()),
-    fetch(params.zh).then(r => r.text())
+    fetch(gParams.en).then(r => r.text()),
+    fetch(gParams.zh).then(r => r.text())
   ]);
-  segsEn = parseSRT(enText);
-  segsZh = parseSRT(zhText);
+  segsEn = parseSRT(enText); segsZh = parseSRT(zhText);
 
-  // 时间轴
-  const tl = $('#timeline');
-  tl.innerHTML = '';
+  try {
+    if (gParams.zhGloss) {
+      const res = await fetch(gParams.zhGloss, { cache:'no-store' });
+      if (res.ok) zhGloss = await res.json();
+    }
+  } catch (_) {}
+
+  const tl = $('#timeline'); tl.innerHTML='';
   segsEn.forEach((s, idx) => {
     const zh = segsZh[idx]?.text || '';
-    const div = document.createElement('div');
-    div.className = 'seg';
-    div.dataset.idx = String(idx);
-    div.innerHTML = `<div class="muted">${formatTime(s.start)} → ${formatTime(s.end)}</div><div>${s.text}</div><div class="muted">${zh}</div>`;
-    div.addEventListener('click', () => seekTo(idx));
-    tl.appendChild(div);
+    const div = document.createElement('div'); div.className='seg'; div.dataset.idx=String(idx);
+    div.innerHTML = `<div class="muted">${formatTime(s.start)} → ${formatTime(s.end)}</div><div>${escapeHtml(s.text)}</div><div class="muted">${escapeHtml(zh)}</div>`;
+    div.addEventListener('click', () => seekTo(idx)); tl.appendChild(div);
   });
 
-  // 创建 YouTube 播放器（与你截图里的 API 用法一致）
   YTPlayer = new YT.Player('player', {
-    videoId: params.videoId,
+    videoId: gParams.videoId,
     playerVars: { rel:0, modestbranding:1, playsinline:1, controls:1 },
-    events: {
-      onReady: () => { tick(); },
-      onStateChange: (e) => {
-        if (e.data === YT.PlayerState.PAUSED) onPaused();
-      }
-    }
+    events: { onReady: () => { tick(); }, onStateChange: (e) => { if (e.data === YT.PlayerState.PAUSED) onPaused(); } }
   });
 
-  // 绑定控制按钮
   $('#prev').addEventListener('click', () => jump(-1));
   $('#next').addEventListener('click', () => jump(+1));
+  $('#speak').addEventListener('click', speakCurrent);
+  $('#clearChat').addEventListener('click', () => { $('#chat').innerHTML=''; $('#snippet').textContent=''; });
+  $('#extractVocab').addEventListener('click', extractVocabFromCurrent);
+  updateTestLink('');
 }
 window.addEventListener('load', setup);
 
-/* 动画循环：同步字幕 + 句末自动暂停 */
 function tick() {
   if (!YTPlayer || typeof YTPlayer.getCurrentTime !== 'function') return requestAnimationFrame(tick);
   const t = YTPlayer.getCurrentTime();
   const i = segsEn.findIndex(s => t >= s.start - 0.05 && t < s.end - 0.02);
   if (i !== -1) setActive(i);
-
   $('#sub-en').textContent = segsEn[curIdx]?.text || '';
   $('#sub-zh').textContent = segsZh[curIdx]?.text || '';
-
-  // 句末自动暂停
   if ($('#autoPause').checked && curIdx !== -1) {
-    const end = segsEn[curIdx].end;
-    if (t >= end - 0.02 && YTPlayer.getPlayerState() === YT.PlayerState.PLAYING) {
-      YTPlayer.pauseVideo();
-    }
+    const end = segsEn[curIdx].end; if (t >= end - 0.02 && YTPlayer.getPlayerState() === YT.PlayerState.PLAYING) { YTPlayer.pauseVideo(); }
   }
   requestAnimationFrame(tick);
 }
-function setActive(i) {
-  if (i === curIdx) return;
-  curIdx = i;
-  $$('.seg').forEach(el => el.classList.toggle('active', +el.dataset.idx === i));
-  if ($('#autoscroll').checked) {
-    const el = document.querySelector(`.seg[data-idx="${i}"]`);
-    if (el) el.scrollIntoView({ block:'nearest', behavior:'smooth' });
-  }
-}
-function seekTo(i) {
-  if (i < 0 || i >= segsEn.length) return;
-  setActive(i);
-  YTPlayer.seekTo(segsEn[i].start + 0.01, true);
-  YTPlayer.playVideo();
-}
-function jump(delta) {
-  const i = Math.min(Math.max((curIdx === -1 ? 0 : curIdx) + delta, 0), segsEn.length-1);
-  seekTo(i);
-}
-function onPaused() {
-  if (curIdx === -1) return;
-  const en = segsEn[curIdx]?.text || '';
-  const zh = segsZh[curIdx]?.text || '';
-  $('#snippet').textContent = `${en}\n${zh ? zh : ''}`;
-}
+function setActive(i){ if(i===curIdx) return; curIdx=i; $$('.seg').forEach(el=>el.classList.toggle('active', +el.dataset.idx===i)); if($('#autoscroll').checked){ const el=document.querySelector(`.seg[data-idx="${i}"]`); if(el) el.scrollIntoView({ block:'nearest', behavior:'smooth' }); } updateTestLink(segsEn[curIdx]?.text || ''); }
+function seekTo(i){ if(i<0||i>=segsEn.length) return; setActive(i); YTPlayer.seekTo(segsEn[i].start+0.01, true); YTPlayer.playVideo(); }
+function jump(d){ const i=Math.min(Math.max((curIdx===-1?0:curIdx)+d,0),segsEn.length-1); seekTo(i); }
+function onPaused(){ if(curIdx===-1) return; const en=segsEn[curIdx]?.text||''; const zh=segsZh[curIdx]?.text||''; addMsg('user', en + (zh?`\n${zh}`:'')); $('#snippet').textContent=`${en}\n${zh?zh:''}`; updateTestLink(en); }
+
+function addMsg(role, text){ const box=$('#chat'); const div=document.createElement('div'); div.className='msg'; div.innerHTML=`<span class="role">${role==='user'?'你':'Bot'}：</span><span>${escapeHtml(text).replace(/\n/g,'<br>')}</span>`; box.appendChild(div); box.scrollTop=box.scrollHeight; }
+function speak(text){ try{ const u=new SpeechSynthesisUtterance(text); u.lang='en-US'; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch(_){} }
+function speakCurrent(){ const en=segsEn[curIdx]?.text||''; if(en) speak(en); }
+
+function tokenizeEN(s){ return (s.match(/[A-Za-z']+/g) || []).map(w=>w.toLowerCase()); }
+function pickKeywords(s){ const stop=new Set(['the','be','to','of','and','a','in','that','have','i','it','for','not','on','with','he','as','you','do','at','this','but','his','by','from','they','we','say','her','she','or','an','will','my','one','all','would','there','their','what','so','up','out','if','about','who','get','which','go','me','when','make','can','like','no','just','him','know','take','into','your','good','some','could','them','see','other','than','then','now','look','only','come','its','over','think','also','back','after','use','two','how','our','work','first','well','way','even','new','want','because','any','these','give','day','most','us']); const words=tokenizeEN(s).filter(w=>w.length>=5 && !stop.has(w)); const uniq=Array.from(new Set(words)); return uniq.slice(0,12); }
+async function fetchEnDef(word){ try{ const r=await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, { cache:'no-store' }); if(!r.ok) return null; const j=await r.json(); const def=j?.[0]?.meanings?.[0]?.definitions?.[0]?.definition||''; const pos=j?.[0]?.meanings?.[0]?.partOfSpeech||''; return { def, pos }; }catch{ return null; } }
+function getZhGloss(word){ const w=word.toLowerCase(); return zhGloss?.[w] || zhGloss?.[word] || ''; }
+async function extractVocabFromCurrent(){ const en=segsEn[curIdx]?.text||''; if(!en) return; const keys=pickKeywords(en); const list=$('#vocabList'); list.innerHTML='<div class="muted">正在提取与加载释义…</div>'; const rows=[]; for(const w of keys){ const info=await fetchEnDef(w); const zh=getZhGloss(w); rows.push({ w, info, zh }); } list.innerHTML=''; if(rows.length===0){ list.innerHTML='<div class="muted">本句未找到合适的候选生词。</div>'; return; } for(const r of rows){ const div=document.createElement('div'); div.className='vocab-item'; const pos=r.info?.pos?`<span class="badge">${escapeHtml(r.info.pos)}</span>`:''; const enDef=r.info?.def?`<div class="muted">${escapeHtml(r.info.def)}</div>`:''; const zh=r.zh?`<div>中文：${escapeHtml(r.zh)}</div>`:`<div class="muted">中文注释：未提供</div>`; div.innerHTML=`<div><strong>${escapeHtml(r.w)}</strong>${pos}</div>${enDef}${zh}`; list.appendChild(div); } }
+
+function updateTestLink(text){ const btn=$('#toTest'); if(!btn) return; const q=new URLSearchParams({ autogen:'1', text, title:gParams?.title||'' }); btn.href=`../test/?${q.toString()}`; }
+function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
