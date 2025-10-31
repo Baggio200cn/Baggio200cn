@@ -2,6 +2,14 @@
 
 欢迎！本仓库会把 data/transcripts 目录下的字幕文件（.txt 或 .srt）自动转换成 Markdown 学习包并发布到 GitHub Pages。
 
+## 🎓 在线互动测试 / Interactive Online Test
+👉 **[点击这里进入在线英语完形填空测试](./test/)** / **[Click here for Interactive English Cloze Test](./test/)**
+
+粘贴任何英文文本，自动生成选择题形式的完形填空测试，立即提交答案并查看得分！
+Paste any English text to automatically generate multiple-choice cloze questions for instant practice!
+
+---
+
 如何使用
 - 把你的字幕文件放到 `data/transcripts/` 下（例如 `data/transcripts/my_talk.txt`）。
 - 推送到 main 分支后，GitHub Actions 会自动生成 `docs/my_talk.md` 并提交回仓库。

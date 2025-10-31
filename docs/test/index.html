@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive English Cloze Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .secondary-btn {
+            background: #764ba2;
+        }
+
+        .secondary-btn:hover {
+            background: #663a8f;
+        }
+
+        .question {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+
+        .question-text {
+            font-size: 1.1em;
+            margin-bottom: 15px;
+            line-height: 1.8;
+        }
+
+        .blank {
+            display: inline-block;
+            min-width: 100px;
+            padding: 2px 8px;
+            background: #fff3cd;
+            border: 2px dashed #ffc107;
+            border-radius: 4px;
+            font-weight: bold;
+            color: #856404;
+        }
+
+        .options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .option {
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: white;
+        }
+
+        .option:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .option.selected {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+        }
+
+        .option.correct {
+            border-color: #28a745;
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .option.incorrect {
+            border-color: #dc3545;
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .results {
+            background: #e7f3ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            border-left: 4px solid #2196f3;
+        }
+
+        .score {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .answer-review {
+            margin-top: 15px;
+        }
+
+        .answer-item {
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+        }
+
+        .answer-item.correct {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .answer-item.incorrect {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .info-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .info-box p {
+            margin-bottom: 8px;
+        }
+
+        .info-box p:last-child {
+            margin-bottom: 0;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .options {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎓 Interactive English Cloze Test</h1>
+        <p class="subtitle">Paste any English text to automatically generate multiple-choice cloze questions for instant practice!</p>
+
+        <div class="info-box">
+            <p><strong>How it works:</strong></p>
+            <p>1. Paste your English text or load a sample</p>
+            <p>2. Click "Generate Test" to create cloze questions</p>
+            <p>3. Select your answers and click "Submit Answers"</p>
+            <p>4. Get instant feedback with your score and correct answers!</p>
+        </div>
+
+        <!-- Input Section -->
+        <div class="section">
+            <h2 class="section-title">📝 Step 1: Input Text</h2>
+            <textarea id="inputText" placeholder="Paste your English text here... (At least 100 words recommended for better questions)"></textarea>
+            <div class="button-group">
+                <button onclick="loadSampleText()">📚 Load Sample Text</button>
+                <button class="secondary-btn" onclick="clearText()">🗑️ Clear Text</button>
+            </div>
+        </div>
+
+        <!-- Generate Button -->
+        <div class="section">
+            <h2 class="section-title">⚙️ Step 2: Generate Questions</h2>
+            <button onclick="generateTest()" style="font-size: 18px; padding: 15px 30px;">
+                ✨ Generate Cloze Test
+            </button>
+        </div>
+
+        <!-- Questions Section -->
+        <div id="questionsSection" class="section hidden">
+            <h2 class="section-title">📋 Step 3: Answer Questions</h2>
+            <div id="questionsContainer"></div>
+            <button onclick="submitAnswers()" style="font-size: 18px; padding: 15px 30px;">
+                ✅ Submit Answers
+            </button>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="section hidden">
+            <h2 class="section-title">🎯 Results</h2>
+            <div id="resultsContainer"></div>
+            <button onclick="resetTest()" style="margin-top: 20px;">🔄 Start New Test</button>
+        </div>
+    </div>
+
+    <script>
+        let testData = [];
+        let userAnswers = {};
+
+        const sampleTexts = [
+            `Innovation is the key to solving global challenges. We must embrace change and think creatively about solutions to problems like climate change, poverty, and inequality. Technology plays a crucial role in this transformation, enabling us to connect people, share knowledge, and develop sustainable practices. However, innovation alone is not enough. We also need collaboration between governments, businesses, and individuals to create lasting impact. By working together and staying committed to our goals, we can build a better future for all. Education is fundamental in this process, as it empowers people with the skills and knowledge needed to drive positive change in their communities.`,
+            
+            `Artificial intelligence is revolutionizing the way we live and work. From healthcare to transportation, AI systems are increasingly capable of performing tasks that once required human intelligence. Machine learning algorithms can analyze vast amounts of data to identify patterns and make predictions with remarkable accuracy. Natural language processing enables computers to understand and generate human language, powering virtual assistants and translation services. Despite these advances, important questions remain about ethics, privacy, and the future of employment. As AI continues to evolve, society must carefully consider how to harness its benefits while addressing potential risks and ensuring that technology serves humanity's best interests.`,
+            
+            `Sustainable development requires balancing economic growth with environmental protection and social equity. Companies are increasingly recognizing that long-term success depends on responsible business practices. Renewable energy sources like solar and wind power are becoming more affordable and accessible, reducing our dependence on fossil fuels. Circular economy principles encourage designing products that can be reused, repaired, or recycled, minimizing waste. Consumers are also playing a vital role by making conscious purchasing decisions and supporting businesses that prioritize sustainability. Governments worldwide are implementing policies to promote green technologies and regulate pollution. The transition to a sustainable future demands commitment from all stakeholders and will define the quality of life for generations to come.`
+        ];
+
+        function loadSampleText() {
+            const randomIndex = Math.floor(Math.random() * sampleTexts.length);
+            document.getElementById('inputText').value = sampleTexts[randomIndex];
+        }
+
+        function clearText() {
+            document.getElementById('inputText').value = '';
+        }
+
+        function generateTest() {
+            const text = document.getElementById('inputText').value.trim();
+            
+            if (text.length < 50) {
+                alert('Please enter at least 50 characters of text to generate a meaningful test.');
+                return;
+            }
+
+            // Split text into sentences
+            const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+            
+            if (sentences.length < 3) {
+                alert('Please enter text with at least 3 sentences to generate questions.');
+                return;
+            }
+
+            // Generate questions
+            testData = [];
+            userAnswers = {};
+            
+            // Select 5 random sentences (or all if less than 5)
+            const numQuestions = Math.min(5, sentences.length);
+            const selectedSentences = shuffleArray([...sentences]).slice(0, numQuestions);
+
+            selectedSentences.forEach((sentence, index) => {
+                const words = sentence.trim().split(/\s+/);
+                
+                // Find content words (not too short, not punctuation)
+                const contentWords = words
+                    .map((word, idx) => ({ word, idx }))
+                    .filter(item => {
+                        const cleaned = item.word.replace(/[^a-zA-Z]/g, '');
+                        return cleaned.length >= 4 && cleaned.length <= 12;
+                    });
+
+                if (contentWords.length === 0) return;
+
+                // Pick a random content word
+                const targetItem = contentWords[Math.floor(Math.random() * contentWords.length)];
+                const targetWord = targetItem.word.replace(/[^a-zA-Z]/g, '');
+                const targetIndex = targetItem.idx;
+
+                // Create the question with blank
+                const questionWords = [...words];
+                const punctuation = questionWords[targetIndex].match(/[^a-zA-Z]+$/)?.[0] || '';
+                questionWords[targetIndex] = `<span class="blank">______</span>${punctuation}`;
+                const questionText = questionWords.join(' ');
+
+                // Generate distractors (wrong options)
+                const allWords = text.match(/\b[a-zA-Z]{4,12}\b/g) || [];
+                const uniqueWords = [...new Set(allWords.map(w => w.toLowerCase()))];
+                const distractors = uniqueWords
+                    .filter(w => w.toLowerCase() !== targetWord.toLowerCase())
+                    .sort(() => 0.5 - Math.random())
+                    .slice(0, 3);
+
+                // Create options array with correct answer and distractors
+                const options = shuffleArray([
+                    { text: targetWord, isCorrect: true },
+                    ...distractors.map(d => ({ text: d, isCorrect: false }))
+                ]);
+
+                testData.push({
+                    id: index,
+                    question: questionText,
+                    options: options,
+                    correctAnswer: targetWord
+                });
+            });
+
+            if (testData.length === 0) {
+                alert('Unable to generate questions from this text. Please try different text.');
+                return;
+            }
+
+            displayQuestions();
+        }
+
+        function shuffleArray(array) {
+            const newArray = [...array];
+            for (let i = newArray.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+            }
+            return newArray;
+        }
+
+        function displayQuestions() {
+            const container = document.getElementById('questionsContainer');
+            container.innerHTML = '';
+
+            testData.forEach((question, qIndex) => {
+                const questionDiv = document.createElement('div');
+                questionDiv.className = 'question';
+                
+                const questionText = document.createElement('div');
+                questionText.className = 'question-text';
+                questionText.innerHTML = `<strong>Question ${qIndex + 1}:</strong> ${question.question}`;
+                questionDiv.appendChild(questionText);
+
+                const optionsDiv = document.createElement('div');
+                optionsDiv.className = 'options';
+
+                question.options.forEach((option, oIndex) => {
+                    const optionDiv = document.createElement('div');
+                    optionDiv.className = 'option';
+                    optionDiv.textContent = option.text;
+                    optionDiv.onclick = () => selectOption(qIndex, oIndex);
+                    optionDiv.dataset.questionId = qIndex;
+                    optionDiv.dataset.optionId = oIndex;
+                    optionsDiv.appendChild(optionDiv);
+                });
+
+                questionDiv.appendChild(optionsDiv);
+                container.appendChild(questionDiv);
+            });
+
+            document.getElementById('questionsSection').classList.remove('hidden');
+            document.getElementById('resultsSection').classList.add('hidden');
+            
+            // Scroll to questions
+            document.getElementById('questionsSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function selectOption(questionId, optionId) {
+            // Remove previous selection for this question
+            const options = document.querySelectorAll(`[data-question-id="${questionId}"]`);
+            options.forEach(opt => opt.classList.remove('selected'));
+
+            // Add selection to clicked option
+            const selectedOption = document.querySelector(`[data-question-id="${questionId}"][data-option-id="${optionId}"]`);
+            selectedOption.classList.add('selected');
+
+            // Store user's answer
+            userAnswers[questionId] = optionId;
+        }
+
+        function submitAnswers() {
+            if (Object.keys(userAnswers).length !== testData.length) {
+                alert('Please answer all questions before submitting.');
+                return;
+            }
+
+            // Calculate score
+            let correctCount = 0;
+            const results = [];
+
+            testData.forEach((question, qIndex) => {
+                const userOptionId = userAnswers[qIndex];
+                const selectedOption = question.options[userOptionId];
+                const isCorrect = selectedOption.isCorrect;
+
+                if (isCorrect) correctCount++;
+
+                results.push({
+                    questionNum: qIndex + 1,
+                    userAnswer: selectedOption.text,
+                    correctAnswer: question.correctAnswer,
+                    isCorrect: isCorrect
+                });
+
+                // Update UI to show correct/incorrect
+                const options = document.querySelectorAll(`[data-question-id="${qIndex}"]`);
+                options.forEach((opt, oIdx) => {
+                    opt.style.pointerEvents = 'none'; // Disable further clicks
+                    if (question.options[oIdx].isCorrect) {
+                        opt.classList.add('correct');
+                    } else if (oIdx === userOptionId && !isCorrect) {
+                        opt.classList.add('incorrect');
+                    }
+                });
+            });
+
+            displayResults(correctCount, results);
+        }
+
+        function displayResults(correctCount, results) {
+            const percentage = Math.round((correctCount / testData.length) * 100);
+            const container = document.getElementById('resultsContainer');
+            
+            let html = `
+                <div class="score">
+                    Score: ${correctCount}/${testData.length} (${percentage}%)
+                </div>
+                <p style="font-size: 1.2em; margin-bottom: 20px;">
+                    ${percentage >= 80 ? '🎉 Excellent work!' : 
+                      percentage >= 60 ? '👍 Good job!' : 
+                      '💪 Keep practicing!'}
+                </p>
+                <div class="answer-review">
+                    <h3 style="margin-bottom: 15px;">Answer Review:</h3>
+            `;
+
+            results.forEach(result => {
+                const className = result.isCorrect ? 'correct' : 'incorrect';
+                const icon = result.isCorrect ? '✅' : '❌';
+                html += `
+                    <div class="answer-item ${className}">
+                        ${icon} <strong>Question ${result.questionNum}:</strong> 
+                        Your answer: <strong>${result.userAnswer}</strong>
+                        ${!result.isCorrect ? ` | Correct answer: <strong>${result.correctAnswer}</strong>` : ''}
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+
+            document.getElementById('resultsSection').classList.remove('hidden');
+            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function resetTest() {
+            testData = [];
+            userAnswers = {};
+            document.getElementById('questionsSection').classList.add('hidden');
+            document.getElementById('resultsSection').classList.add('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
