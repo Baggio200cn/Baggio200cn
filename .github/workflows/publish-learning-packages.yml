@@ -25,6 +25,7 @@ jobs:
       - name: Generate packages for each transcript
         shell: bash
         run: |
+          set -e
           shopt -s nullglob
           for f in data/transcripts/*.txt data/transcripts/*.srt data/transcripts/**/*.txt data/transcripts/**/*.srt; do
             [ -e "$f" ] || continue
