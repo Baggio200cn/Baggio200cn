@@ -89,15 +89,8 @@ online test that turns a paragraph into cloze questions. Try it now!`;
   });
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-
-  function tokenize(text) {
-    return (text.match(/[A-Za-z']+/g) || []).map(w => w.toLowerCase());
-  }
-
-  function pickCandidates(words) {
-    return Array.from(new Set(words)).filter(w => w.length >= 5 && !stopwords.has(w));
-  }
-
+  function tokenize(text) { return (text.match(/[A-Za-z']+/g) || []).map(w => w.toLowerCase()); }
+  function pickCandidates(words) { return Array.from(new Set(words)).filter(w => w.length >= 5 && !stopwords.has(w)); }
   function sample(arr, n, exclude = new Set()) {
     const pool = arr.filter(x => !exclude.has(x));
     const result = [];
@@ -164,14 +157,7 @@ online test that turns a paragraph into cloze questions. Try it now!`;
     });
   }
 
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
-
+  function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
   function escapeReg(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
   function escapeHtml(s) {
     return String(s)
@@ -183,21 +169,11 @@ online test that turns a paragraph into cloze questions. Try it now!`;
   // 页面加载时，支持从 URL 预填并自动出题
   window.addEventListener("load", async () => {
     const p = getParams();
-    if (p.title) {
-      // 可选：把标题反映到文档标题
-      try { document.title = p.title + " — Online Test"; } catch (_) {}
-    }
+    if (p.title) { try { document.title = p.title + " — Online Test"; } catch (_) {} }
     if (p.textUrl) {
-      try {
-        const t = await fetch(p.textUrl).then(r => r.text());
-        if (t && !textEl.value.trim()) textEl.value = t.trim();
-      } catch (_) {}
+      try { const t = await fetch(p.textUrl).then(r => r.text()); if (t && !textEl.value.trim()) textEl.value = t.trim(); } catch (_) {}
     }
-    if (p.text && !textEl.value.trim()) {
-      textEl.value = p.text;
-    }
-    if ((p.autogen === "1" || p.autogen === "true") && textEl.value.trim()) {
-      $("#generate").click();
-    }
+    if (p.text && !textEl.value.trim()) { textEl.value = p.text; }
+    if ((p.autogen === "1" || p.autogen === "true") && textEl.value.trim()) { $("#generate").click(); }
   });
 })();
