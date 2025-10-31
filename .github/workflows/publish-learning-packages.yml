@@ -5,8 +5,8 @@ on:
     branches:
       - main
     paths:
-      - 'data/transcripts/*.txt'
-      - 'data/transcripts/*.srt'
+      - 'data/transcripts/**/*.txt'
+      - 'data/transcripts/**/*.srt'
   workflow_dispatch:
 
 permissions:
@@ -30,20 +30,25 @@ jobs:
       
       - name: Generate learning packages
         run: |
+          set -e  # Exit on any error
+          shopt -s nullglob  # Handle case when no files match glob pattern
+          
           # Process all transcript files in data/transcripts/
           for transcript in data/transcripts/*.txt data/transcripts/*.srt; do
-            # Check if file exists (glob may not match anything)
-            if [ -f "$transcript" ]; then
-              # Extract filename without extension
-              filename=$(basename "$transcript")
-              basename="${filename%.*}"
-              
-              echo "Processing: $transcript -> docs/${basename}.md"
-              
-              # Generate learning package
-              python3 ted_cli.py -i "$transcript" -o "docs/${basename}.md"
+            # Extract filename without extension
+            filename=$(basename "$transcript")
+            basename="${filename%.*}"
+            
+            echo "Processing: $transcript -> docs/${basename}.md"
+            
+            # Generate learning package with error handling
+            if ! python3 ted_cli.py -i "$transcript" -o "docs/${basename}.md"; then
+              echo "Error processing $transcript"
+              exit 1
             fi
           done
+          
+          echo "Successfully processed all transcripts"
       
       - name: Commit and push generated docs
         run: |
