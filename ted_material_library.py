@@ -12,29 +12,38 @@ class MaterialLibrary:
     
     def __init__(self, library_file: str = "material_library.json"):
         self.library_file = Path(library_file)
-        self.materials = self._load_library()
+        self.materials, self.next_id = self._load_library()
     
-    def _load_library(self) -> List[Dict]:
+    def _load_library(self):
         """Load existing library or create new one"""
         if self.library_file.exists():
             with open(self.library_file, 'r') as f:
-                return json.load(f)
-        return []
+                data = json.load(f)
+                # Handle both old format (list) and new format (dict with metadata)
+                if isinstance(data, list):
+                    materials = data
+                    next_id = max([m['id'] for m in materials], default=0) + 1
+                else:
+                    materials = data.get('materials', [])
+                    next_id = data.get('next_id', max([m['id'] for m in materials], default=0) + 1)
+                return materials, next_id
+        return [], 1
     
     def _save_library(self):
-        """Save library to file"""
+        """Save library to file with metadata"""
+        data = {
+            'materials': self.materials,
+            'next_id': self.next_id
+        }
         with open(self.library_file, 'w') as f:
-            json.dump(self.materials, f, indent=2)
+            json.dump(data, f, indent=2)
     
     def add_url(self, url: str, title: str = "", description: str = "") -> Dict:
         """Add a TED talk URL to the library"""
-        # Generate unique ID based on max existing ID to avoid duplicates
-        next_id = max([m['id'] for m in self.materials], default=0) + 1
-        
         material = {
-            "id": next_id,
+            "id": self.next_id,
             "url": url,
-            "title": title or f"TED Talk {next_id}",
+            "title": title or f"TED Talk {self.next_id}",
             "description": description,
             "date_added": datetime.now().isoformat(),
             "processed": False,
@@ -43,6 +52,7 @@ class MaterialLibrary:
         }
         
         self.materials.append(material)
+        self.next_id += 1
         self._save_library()
         return material
     
