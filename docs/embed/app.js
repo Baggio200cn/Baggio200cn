@@ -12,6 +12,7 @@ function getParams() {
     zhGloss: u.searchParams.get('zhGloss') || '',
     compact: (u.searchParams.get('compact') || '') === '1'
   };
+  // 若未显式提供 zhGloss，尝试从 zh 路径猜测 glossary_zh.json
   if (!p.zhGloss && p.zh) {
     try {
       const url = new URL(p.zh, location.href);
@@ -51,16 +52,27 @@ function formatTime(sec){
   return (h!=='00'?h+':':'')+m+':'+s;
 }
 
-// 更稳的“按时间取片段索引”
+// 宽松定位：优先“包围区间”，退化为“最后一个 start<=t”
 function getIndexAtTime(t) {
-  // 优先：宽松包围区间（片尾向后放宽 0.35s）
   let i = segsEn.findIndex(s => t >= s.start - 0.15 && t <= s.end + 0.35);
   if (i !== -1) return i;
-  // 回退：取“最后一个 start <= t”的片段
   for (let k = segsEn.length - 1; k >= 0; k--) {
     if (t >= segsEn[k].start - 0.15) return k;
   }
   return -1;
+}
+
+// 安全取文本
+async function safeFetchText(url) {
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return { ok:false, text:'', status:r.status };
+    const text = await r.text();
+    return { ok:true, text };
+  } catch (e) {
+    console.warn('fetch failed', url, e);
+    return { ok:false, text:'' };
+  }
 }
 
 // IFrame API 需要该全局函数存在
@@ -70,31 +82,41 @@ async function setup() {
   gParams = getParams();
   $('#title').textContent = 'YouTube 双语字幕播放器 — ' + gParams.title;
 
-  // compact 模式：隐藏用法说明和时间轴卡片
+  // 紧凑模式：隐藏用法和时间轴
   if (gParams.compact) {
     const usage = $('#usage'); if (usage) usage.style.display = 'none';
     const tlc = $('#timelineCard'); if (tlc) tlc.style.display = 'none';
   }
 
-  // 加载字幕与中文注释
-  const [enText, zhText] = await Promise.all([
-    fetch(gParams.en).then(r => r.text()),
-    fetch(gParams.zh).then(r => r.text())
-  ]);
-  segsEn = parseSRT(enText);
-  segsZh = parseSRT(zhText);
+  // 加载字幕
+  const enRes = await safeFetchText(gParams.en);
+  if (!enRes.ok || !enRes.text.trim()) {
+    const msg = `英文字幕加载失败：${gParams.en}（状态 ${enRes.status ?? '未知'}）。请检查路径或确保文件存在。`;
+    console.error(msg);
+    $('#snippet').textContent = msg;
+    // 没有英文字幕就无法逐句定位，提前返回
+    return;
+  }
+  const zhRes = await safeFetchText(gParams.zh);
 
-  // 注释 JSON（可选）
-  try {
-    if (gParams.zhGloss) {
-      const res = await fetch(gParams.zhGloss, { cache:'no-store' });
-      if (res.ok) zhGloss = await res.json();
-    }
-  } catch (_) {}
+  segsEn = parseSRT(enRes.text);
+  if (!Array.isArray(segsEn) || segsEn.length === 0) {
+    const msg = '英文字幕解析失败，请确认 .srt 格式是否正确。';
+    console.error(msg);
+    $('#snippet').textContent = msg;
+    return;
+  }
 
-  // 时间轴
+  segsZh = [];
+  if (zhRes.ok && zhRes.text.trim()) {
+    segsZh = parseSRT(zhRes.text) || [];
+  } else {
+    console.warn('中文字幕缺失或加载失败，将仅显示英文。', gParams.zh);
+  }
+
+  // 时间轴（非紧凑模式才渲染）
   const tl = $('#timeline');
-  if (tl) {
+  if (tl && (!gParams.compact)) {
     tl.innerHTML = '';
     segsEn.forEach((s, idx) => {
       const zh = segsZh[idx]?.text || '';
@@ -106,6 +128,14 @@ async function setup() {
       tl.appendChild(div);
     });
   }
+
+  // 可选中文注释
+  try {
+    if (gParams.zhGloss) {
+      const res = await safeFetchText(gParams.zhGloss);
+      if (res.ok) zhGloss = JSON.parse(res.text);
+    }
+  } catch (e) { console.warn('加载中文注释失败', e); }
 
   // 播放器
   YTPlayer = new YT.Player('player', {
@@ -123,10 +153,8 @@ async function setup() {
   $('#speak').addEventListener('click', speakCurrent);
   $('#clearChat').addEventListener('click', () => { $('#chat').innerHTML=''; $('#snippet').textContent=''; });
 
-  // 生词
   $('#extractVocab').addEventListener('click', extractVocabFromCurrent);
 
-  // 初始化“在线测试”按钮
   updateTestLink('');
 }
 window.addEventListener('load', setup);
@@ -177,7 +205,10 @@ function onPaused() {
   const i = getIndexAtTime(t);
   if (i !== -1) setActive(i);
 
-  if (curIdx === -1) return;
+  if (curIdx === -1) {
+    console.warn('暂停时未能定位到字幕片段，t=', t);
+    return;
+  }
   const en = segsEn[curIdx]?.text || '';
   const zh = segsZh[curIdx]?.text || '';
   addMsg('user', en + (zh ? `\n${zh}` : ''));
@@ -197,10 +228,14 @@ function addMsg(role, text) {
 function speak(text) {
   try {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'en-US';
+    // 尝试选择英语语音，失败则用默认
+    const voices = speechSynthesis.getVoices();
+    const v = voices.find(x => /en/i.test(x.lang)) || voices[0];
+    if (v) u.voice = v;
+    u.lang = (v?.lang) || 'en-US';
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
-  } catch (_) {}
+  } catch (e) { console.warn('speech synthesis error', e); }
 }
 function speakCurrent() {
   const en = segsEn[curIdx]?.text || '';
