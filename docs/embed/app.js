@@ -1,4 +1,5 @@
 let YTPlayer, segsEn = [], segsZh = [], curIdx = -1, gParams, zhGloss = {};
+let lastCapturedIdx = -1; // 避免在同一句上多次暂停重复写入
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
@@ -51,10 +52,15 @@ function formatTime(sec){
   return (h!=='00'?h+':':'')+m+':'+s;
 }
 
-// 宽松定位：优先“包围区间”，退化为“最后一个 start<=t”
+// 更稳的“按时间取片段”：优先包围区间；若超出最后一句太远则不回退
 function getIndexAtTime(t) {
+  if (!segsEn.length) return -1;
+  const last = segsEn[segsEn.length - 1];
+  if (t > (last.end + 0.6)) return -1; // 末尾保护：不要回退
+  // 宽松包围
   let i = segsEn.findIndex(s => t >= s.start - 0.15 && t <= s.end + 0.35);
   if (i !== -1) return i;
+  // 最后一个 start <= t
   for (let k = segsEn.length - 1; k >= 0; k--) {
     if (t >= segsEn[k].start - 0.15) return k;
   }
@@ -73,27 +79,29 @@ async function safeFetchText(url) {
   }
 }
 
-// IFrame API 需要该全局函数存在
+// IFrame API 全局占位
 function onYouTubeIframeAPIReady() {}
 
 async function setup() {
   gParams = getParams();
   $('#title').textContent = 'YouTube 双语字幕播放器 — ' + gParams.title;
 
-  // 紧凑模式隐藏 长说明/时间轴
+  // 紧凑模式：隐藏说明与时间轴
   if (gParams.compact) {
     const usage = $('#usage'); if (usage) usage.style.display = 'none';
     const tlc = $('#timelineCard'); if (tlc) tlc.style.display = 'none';
   }
 
-  // 加载字幕（英文必须尽量加载；中文可缺省）
-  const enRes = await safeFetchText(gParams.en);
-  const zhRes = await safeFetchText(gParams.zh);
+  // 加载字幕（英文为主，中文可缺省）
+  const [enRes, zhRes] = await Promise.all([
+    safeFetchText(gParams.en),
+    safeFetchText(gParams.zh)
+  ]);
 
   if (enRes.ok && enRes.text.trim()) {
     segsEn = parseSRT(enRes.text) || [];
   } else {
-    segsEn = []; // 继续运行，但功能降级
+    segsEn = [];
     const msg = `英文字幕未加载（${gParams.en}，状态 ${enRes.status ?? '未知'}），将仅播放视频且无法逐句捕获。`;
     console.warn(msg);
     const sn = $('#snippet'); if (sn) sn.textContent = msg + ' 请补齐 en.srt。';
@@ -106,7 +114,7 @@ async function setup() {
     if (gParams.zh) console.warn('中文字幕缺失或加载失败，将仅显示英文。', gParams.zh);
   }
 
-  // 时间轴（仅当有英文字幕且非紧凑模式）
+  // 时间轴（只有英文字幕且非紧凑模式才渲染）
   const tl = $('#timeline');
   if (tl && segsEn.length && !gParams.compact) {
     tl.innerHTML = '';
@@ -121,7 +129,7 @@ async function setup() {
     });
   }
 
-  // 可选中文注释
+  // 中文注释（可选）
   try {
     if (gParams.zhGloss) {
       const gloss = await safeFetchText(gParams.zhGloss);
@@ -129,7 +137,7 @@ async function setup() {
     }
   } catch (e) { console.warn('加载中文注释失败', e); }
 
-  // 创建播放器（重要：即使没有字幕，也创建）
+  // 创建播放器（即使没有字幕也创建）
   YTPlayer = new YT.Player('player', {
     videoId: gParams.videoId,
     playerVars: { rel:0, modestbranding:1, playsinline:1, controls:1 },
@@ -139,6 +147,7 @@ async function setup() {
     }
   });
 
+  // 控件
   $('#prev').addEventListener('click', () => jump(-1));
   $('#next').addEventListener('click', () => jump(+1));
   $('#speak').addEventListener('click', speakCurrent);
@@ -191,17 +200,19 @@ function jump(delta) {
 }
 
 function onPaused() {
-  // 暂停时强定位一次（即使没有字幕也不报错）
   const t = YTPlayer?.getCurrentTime?.() || 0;
   if (segsEn.length) {
     const i = getIndexAtTime(t);
     if (i !== -1) setActive(i);
   }
-
   if (curIdx === -1 || !segsEn.length) {
-    addMsg('bot', '未能捕获字幕片段：请确认英文字幕 en.srt 已部署并路径正确。');
+    addMsg('bot', '未捕获字幕片段：请确认英文字幕 en.srt 已部署并路径正确。');
     return;
   }
+  // 避免重复写入同一句
+  if (lastCapturedIdx === curIdx) return;
+  lastCapturedIdx = curIdx;
+
   const en = segsEn[curIdx]?.text || '';
   const zh = segsZh[curIdx]?.text || '';
   addMsg('user', en + (zh ? `\n${zh}` : ''));
@@ -295,4 +306,5 @@ function updateTestLink(text) {
   });
   btn.href = `../test/?${q.toString()}`;
 }
+
 function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
