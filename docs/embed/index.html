@@ -23,7 +23,7 @@
   <div class="wrap">
     <header class="top">
       <h1 id="title">YouTube 双语字幕播放器（IFrame API）</h1>
-      <p class="muted">
+      <p id="usage" class="muted">
         用法：通过 URL 指定 videoId、en、zh（可选 zhGloss）。示例：
         <code>?videoId=gN9dlisaQVM&en=/Baggio200cn/ted/gN9dlisaQVM/en.srt&zh=/Baggio200cn/ted/gN9dlisaQVM/zh.srt&title=TED%20Test&zhGloss=/Baggio200cn/ted/gN9dlisaQVM/glossary_zh.json</code>
       </p>
@@ -47,7 +47,7 @@
           <button id="next" class="btn">下一句</button>
         </div>
 
-        <div class="card">
+        <div id="timelineCard" class="card">
           <h3>字幕时间轴（可点击跳转）</h3>
           <div id="timeline" class="timeline"></div>
         </div>
