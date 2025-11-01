@@ -1,9 +1,7 @@
-/* 全局：与 YouTube IFrame API 交互 */
 let YTPlayer, segsEn = [], segsZh = [], curIdx = -1, gParams, zhGloss = {};
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
-/* URL 参数 */
 function getParams() {
   const u = new URL(location.href);
   const p = {
@@ -11,9 +9,9 @@ function getParams() {
     en: u.searchParams.get('en') || '../ted/sample/en.srt',
     zh: u.searchParams.get('zh') || '../ted/sample/zh.srt',
     title: u.searchParams.get('title') || '示例演讲',
-    zhGloss: u.searchParams.get('zhGloss') || ''
+    zhGloss: u.searchParams.get('zhGloss') || '',
+    compact: (u.searchParams.get('compact') || '') === '1'
   };
-  // 若未显式提供 zhGloss，尝试从 zh 路径猜测 glossary_zh.json
   if (!p.zhGloss && p.zh) {
     try {
       const url = new URL(p.zh, location.href);
@@ -24,7 +22,6 @@ function getParams() {
   return p;
 }
 
-/* 解析 SRT */
 function parseSRT(srt) {
   const lines = srt.replace(/\r/g, '').split('\n');
   const items = [];
@@ -35,7 +32,8 @@ function parseSRT(srt) {
     if (i >= lines.length) break;
     const m = lines[i].match(/(\d+):(\d+):(\d+),(\d+)\s+-->\s+(\d+):(\d+):(\d+),(\d+)/);
     if (!m) { i++; continue; }
-    const start = toSec(m[1],m[2],m[3],m[4]), end = toSec(m[5],m[6],m[7],m[8]);
+    const start = toSec(m[1],m[2],m[3],m[4]);
+    const end   = toSec(m[5],m[6],m[7],m[8]);
     i++;
     const buf = [];
     while (i < lines.length && lines[i].trim() !== '') { buf.push(lines[i]); i++; }
@@ -53,13 +51,30 @@ function formatTime(sec){
   return (h!=='00'?h+':':'')+m+':'+s;
 }
 
-/* IFrame API 回调（必须存在） */
+// 更稳的“按时间取片段索引”
+function getIndexAtTime(t) {
+  // 优先：宽松包围区间（片尾向后放宽 0.35s）
+  let i = segsEn.findIndex(s => t >= s.start - 0.15 && t <= s.end + 0.35);
+  if (i !== -1) return i;
+  // 回退：取“最后一个 start <= t”的片段
+  for (let k = segsEn.length - 1; k >= 0; k--) {
+    if (t >= segsEn[k].start - 0.15) return k;
+  }
+  return -1;
+}
+
+// IFrame API 需要该全局函数存在
 function onYouTubeIframeAPIReady() {}
 
-/* 入口 */
 async function setup() {
   gParams = getParams();
   $('#title').textContent = 'YouTube 双语字幕播放器 — ' + gParams.title;
+
+  // compact 模式：隐藏用法说明和时间轴卡片
+  if (gParams.compact) {
+    const usage = $('#usage'); if (usage) usage.style.display = 'none';
+    const tlc = $('#timelineCard'); if (tlc) tlc.style.display = 'none';
+  }
 
   // 加载字幕与中文注释
   const [enText, zhText] = await Promise.all([
@@ -69,6 +84,7 @@ async function setup() {
   segsEn = parseSRT(enText);
   segsZh = parseSRT(zhText);
 
+  // 注释 JSON（可选）
   try {
     if (gParams.zhGloss) {
       const res = await fetch(gParams.zhGloss, { cache:'no-store' });
@@ -78,16 +94,18 @@ async function setup() {
 
   // 时间轴
   const tl = $('#timeline');
-  tl.innerHTML = '';
-  segsEn.forEach((s, idx) => {
-    const zh = segsZh[idx]?.text || '';
-    const div = document.createElement('div');
-    div.className = 'seg';
-    div.dataset.idx = String(idx);
-    div.innerHTML = `<div class="muted">${formatTime(s.start)} → ${formatTime(s.end)}</div><div>${escapeHtml(s.text)}</div><div class="muted">${escapeHtml(zh)}</div>`;
-    div.addEventListener('click', () => seekTo(idx));
-    tl.appendChild(div);
-  });
+  if (tl) {
+    tl.innerHTML = '';
+    segsEn.forEach((s, idx) => {
+      const zh = segsZh[idx]?.text || '';
+      const div = document.createElement('div');
+      div.className = 'seg';
+      div.dataset.idx = String(idx);
+      div.innerHTML = `<div class="muted">${formatTime(s.start)} → ${formatTime(s.end)}</div><div>${escapeHtml(s.text)}</div><div class="muted">${escapeHtml(zh)}</div>`;
+      div.addEventListener('click', () => seekTo(idx));
+      tl.appendChild(div);
+    });
+  }
 
   // 播放器
   YTPlayer = new YT.Player('player', {
@@ -104,6 +122,8 @@ async function setup() {
   $('#next').addEventListener('click', () => jump(+1));
   $('#speak').addEventListener('click', speakCurrent);
   $('#clearChat').addEventListener('click', () => { $('#chat').innerHTML=''; $('#snippet').textContent=''; });
+
+  // 生词
   $('#extractVocab').addEventListener('click', extractVocabFromCurrent);
 
   // 初始化“在线测试”按钮
@@ -111,11 +131,10 @@ async function setup() {
 }
 window.addEventListener('load', setup);
 
-/* 刷新：同步字幕 + 句末自动暂停 */
 function tick() {
   if (!YTPlayer || typeof YTPlayer.getCurrentTime !== 'function') return requestAnimationFrame(tick);
   const t = YTPlayer.getCurrentTime();
-  const i = segsEn.findIndex(s => t >= s.start - 0.05 && t < s.end - 0.02);
+  const i = getIndexAtTime(t);
   if (i !== -1) setActive(i);
 
   $('#sub-en').textContent = segsEn[curIdx]?.text || '';
@@ -140,6 +159,7 @@ function setActive(i) {
   }
   updateTestLink(segsEn[curIdx]?.text || '');
 }
+
 function seekTo(i) {
   if (i < 0 || i >= segsEn.length) return;
   setActive(i);
@@ -150,7 +170,13 @@ function jump(delta) {
   const i = Math.min(Math.max((curIdx === -1 ? 0 : curIdx) + delta, 0), segsEn.length-1);
   seekTo(i);
 }
+
 function onPaused() {
+  // 暂停瞬间再强定位一次，确保 curIdx 有效
+  const t = YTPlayer?.getCurrentTime?.() || 0;
+  const i = getIndexAtTime(t);
+  if (i !== -1) setActive(i);
+
   if (curIdx === -1) return;
   const en = segsEn[curIdx]?.text || '';
   const zh = segsZh[curIdx]?.text || '';
