@@ -413,6 +413,12 @@ button {
   font-size: 13px;
 }
 
+.empty-message {
+  padding: 16px;
+  text-align: center;
+  color: var(--fg-muted);
+}
+
 /* Practice Tab */
 .practice-section {
   padding: 20px;

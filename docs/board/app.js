@@ -251,9 +251,7 @@ function renderTimeline() {
   
   if (segsEn.length === 0) {
     const emptyMsg = document.createElement('div');
-    emptyMsg.style.padding = '16px';
-    emptyMsg.style.textAlign = 'center';
-    emptyMsg.style.color = 'var(--fg-muted)';
+    emptyMsg.className = 'empty-message';
     emptyMsg.textContent = '无字幕数据';
     timeline.appendChild(emptyMsg);
     return;
@@ -1237,6 +1235,10 @@ function init() {
   updateAPIStatus();
   
   // Add sample materials if empty
+  // Note: Sample material paths assume the following directory structure:
+  // docs/ted/gN9dlisaQVM/en.srt (English subtitles)
+  // docs/ted/gN9dlisaQVM/zh.srt (Chinese subtitles)
+  // Adjust these paths if deploying to a different environment
   if (materials.length === 0) {
     materials.push({
       id: '1',
