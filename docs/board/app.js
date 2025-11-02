@@ -189,10 +189,14 @@ function renderMaterialsList(filter = '') {
     if (currentMaterial && currentMaterial.id === mat.id) {
       item.classList.add('active');
     }
-    item.innerHTML = `
-      <div class="material-title">${mat.title}</div>
-      <div class="material-meta">${mat.videoId ? '视频: ' + mat.videoId : '仅字幕'}</div>
-    `;
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'material-title';
+    titleDiv.textContent = mat.title;
+    item.appendChild(titleDiv);
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'material-meta';
+    metaDiv.textContent = mat.videoId ? '视频: ' + mat.videoId : '仅字幕';
+    item.appendChild(metaDiv);
     item.addEventListener('click', () => loadMaterial(mat));
     list.appendChild(item);
   });
