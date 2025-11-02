@@ -36,9 +36,10 @@ function parseSRT(srt) {
     i++;
     const buf = [];
     while (i < lines.length && lines[i].trim() !== '') { buf.push(lines[i]); i++; }
-    // Strip all HTML-like content by removing < > and content between them
-    // This prevents any HTML/script injection from SRT formatting tags
-    const text = buf.join(' ').replace(/</g, '').replace(/>/g, '').trim();
+    // Sanitize text by using a DOM element to escape any HTML/script content
+    const div = document.createElement('div');
+    div.textContent = buf.join(' ').trim();
+    const text = div.textContent;
     items.push({ start, end, text });
     while (i < lines.length && lines[i].trim() === '') i++;
   }
