@@ -250,24 +250,30 @@ function renderTimeline() {
   timeline.innerHTML = '';
   
   if (segsEn.length === 0) {
-    timeline.innerHTML = '<div style="padding:16px;text-align:center;color:var(--fg-muted)">无字幕数据</div>';
+    const emptyMsg = document.createElement('div');
+    emptyMsg.style.padding = '16px';
+    emptyMsg.style.textAlign = 'center';
+    emptyMsg.style.color = 'var(--fg-muted)';
+    emptyMsg.textContent = '无字幕数据';
+    timeline.appendChild(emptyMsg);
     return;
   }
 
   segsEn.forEach((seg, idx) => {
     const item = document.createElement('div');
     item.className = 'timeline-item';
-
+    
     const timeDiv = document.createElement('div');
     timeDiv.className = 'timeline-time';
     timeDiv.textContent = formatTime(seg.start);
-
+    
     const textDiv = document.createElement('div');
     textDiv.className = 'timeline-text';
     textDiv.textContent = seg.text;
-
+    
     item.appendChild(timeDiv);
     item.appendChild(textDiv);
+    
     item.addEventListener('click', () => {
       if (YTPlayer && YTPlayer.seekTo) {
         YTPlayer.seekTo(seg.start, true);
@@ -465,6 +471,9 @@ const STOPWORDS = new Set([
   "any", "these", "give", "day", "most", "us"
 ]);
 
+// Constants for API limits
+const MAX_API_TEXT_LENGTH = 4000;
+
 // Vocabulary Generator
 $('#vocabCount').addEventListener('input', (e) => {
   $('#vocabCountValue').textContent = e.target.value;
@@ -581,8 +590,9 @@ function makeClozeQuiz(originalText, n, k) {
   blanks.forEach((blank, idx) => {
     if (usedWords.has(blank)) return;
     
-    // Find first occurrence in original text
-    const regex = new RegExp(`\\b${blank}\\b`, 'i');
+    // Escape special regex characters to prevent regex errors
+    const escapedBlank = blank.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escapedBlank}\\b`, 'i');
     const match = originalText.match(regex);
     if (!match) return;
     
@@ -628,7 +638,15 @@ function renderClozeQuiz() {
     const snippet = q.text.split('_____');
     const before = snippet[0].slice(-100);
     const after = snippet[1].slice(0, 100);
-    textDiv.innerHTML = `${before}<span class="cloze-blank" id="${q.id}_blank">_____</span>${after}`;
+    
+    // Build safely without innerHTML
+    textDiv.textContent = before;
+    const blankSpan = document.createElement('span');
+    blankSpan.className = 'cloze-blank';
+    blankSpan.id = `${q.id}_blank`;
+    blankSpan.textContent = '_____';
+    textDiv.appendChild(blankSpan);
+    textDiv.appendChild(document.createTextNode(after));
     
     const choicesDiv = document.createElement('div');
     choicesDiv.className = 'cloze-choices';
@@ -684,7 +702,13 @@ $('#generateShadowing').addEventListener('click', () => {
   segsEn.forEach((seg, idx) => {
     const line = document.createElement('div');
     line.className = 'shadowing-line';
-    line.innerHTML = `<span class="shadowing-index">${idx + 1}.</span> ${seg.text}`;
+    
+    const indexSpan = document.createElement('span');
+    indexSpan.className = 'shadowing-index';
+    indexSpan.textContent = `${idx + 1}.`;
+    
+    line.appendChild(indexSpan);
+    line.appendChild(document.createTextNode(' ' + seg.text));
     result.appendChild(line);
   });
 });
@@ -793,7 +817,7 @@ $('#generateLLMPackage').addEventListener('click', async () => {
   const fullText = segsEn.map(s => s.text).join(' ');
   
   // Limit text length for API
-  const textSnippet = fullText.slice(0, 4000);
+  const textSnippet = fullText.slice(0, MAX_API_TEXT_LENGTH);
   
   const prompt = `Please create a comprehensive learning package for the following English material titled "${title}". Include the following sections:
 
@@ -911,28 +935,38 @@ function renderPackage() {
 function displayPackageSection(section) {
   const contentDisplay = $('#packageContent');
   
-  // Simple markdown rendering
-  let html = section.content;
+  // Simple markdown rendering with HTML escaping for safety
+  let text = section.content;
   
+  // Escape HTML entities first to prevent injection
+  const escapeHtml = (str) => {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  };
+  
+  text = escapeHtml(text);
+  
+  // Now apply markdown formatting on the escaped text
   // Headers
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
   
   // Lists - properly wrap consecutive li elements
-  html = html.replace(/^\- (.+)$/gm, '<li>$1</li>');
+  text = text.replace(/^\- (.+)$/gm, '<li>$1</li>');
   // Group consecutive li elements into ul
-  html = html.replace(/((?:<li>.*?<\/li>\n?)+)/g, '<ul>$1</ul>');
+  text = text.replace(/((?:<li>.*?<\/li>\n?)+)/g, '<ul>$1</ul>');
   
-  // Bold and italic
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Bold and italic (on already-escaped text, so safe)
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
   
   // Line breaks
-  html = html.replace(/\n\n/g, '</p><p>');
-  html = '<p>' + html + '</p>';
+  text = text.replace(/\n\n/g, '</p><p>');
+  text = '<p>' + text + '</p>';
   
-  contentDisplay.innerHTML = html;
+  contentDisplay.innerHTML = text;
 }
 
 $('#exportPackageMD').addEventListener('click', () => {
