@@ -544,8 +544,8 @@ $('#generateCloze').addEventListener('click', () => {
   renderClozeQuiz();
 });
 
-function makeClozeQuiz(text, n, k) {
-  const words = (text.match(/[A-Za-z']+/g) || []);
+function makeClozeQuiz(originalText, n, k) {
+  const words = (originalText.match(/[A-Za-z']+/g) || []);
   if (words.length < n) {
     n = words.length;
   }
@@ -558,24 +558,28 @@ function makeClozeQuiz(text, n, k) {
   const blanks = shuffled.slice(0, n);
   
   const questions = [];
+  const usedWords = new Set();
+  
   blanks.forEach((blank, idx) => {
+    if (usedWords.has(blank)) return;
+    
     // Find first occurrence in original text
     const regex = new RegExp(`\\b${blank}\\b`, 'i');
-    const match = text.match(regex);
+    const match = originalText.match(regex);
     if (!match) return;
     
     const answer = match[0];
     
     // Generate distractors
     const distractors = uniqueCandidates
-      .filter(w => w !== blank)
+      .filter(w => w !== blank && !usedWords.has(w))
       .sort(() => Math.random() - 0.5)
       .slice(0, k - 1);
     
     const choices = [answer, ...distractors].sort(() => Math.random() - 0.5);
     
-    // Create question text with blank
-    const questionText = text.replace(regex, '_____');
+    // Create question text with blank (keep original text intact)
+    const questionText = originalText.replace(regex, '_____');
     
     questions.push({
       id: `q${idx}`,
@@ -585,8 +589,7 @@ function makeClozeQuiz(text, n, k) {
       userAnswer: null
     });
     
-    // Replace so we don't use same word twice
-    text = text.replace(regex, `[USED_${idx}]`);
+    usedWords.add(blank);
   });
   
   return questions;
@@ -898,9 +901,10 @@ function displayPackageSection(section) {
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
   
-  // Lists
+  // Lists - properly wrap consecutive li elements
   html = html.replace(/^\- (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  // Group consecutive li elements into ul
+  html = html.replace(/((?:<li>.*?<\/li>\n?)+)/g, '<ul>$1</ul>');
   
   // Bold and italic
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
