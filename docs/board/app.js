@@ -257,10 +257,17 @@ function renderTimeline() {
   segsEn.forEach((seg, idx) => {
     const item = document.createElement('div');
     item.className = 'timeline-item';
-    item.innerHTML = `
-      <div class="timeline-time">${formatTime(seg.start)}</div>
-      <div class="timeline-text">${seg.text}</div>
-    `;
+
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'timeline-time';
+    timeDiv.textContent = formatTime(seg.start);
+
+    const textDiv = document.createElement('div');
+    textDiv.className = 'timeline-text';
+    textDiv.textContent = seg.text;
+
+    item.appendChild(timeDiv);
+    item.appendChild(textDiv);
     item.addEventListener('click', () => {
       if (YTPlayer && YTPlayer.seekTo) {
         YTPlayer.seekTo(seg.start, true);
