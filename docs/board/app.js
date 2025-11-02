@@ -494,10 +494,14 @@ $('#generateVocab').addEventListener('click', () => {
   top.forEach(([word, count]) => {
     const item = document.createElement('div');
     item.className = 'vocab-item';
-    item.innerHTML = `
-      <span class="vocab-word">${word}</span>
-      <span class="vocab-freq">x${count}</span>
-    `;
+    const wordSpan = document.createElement('span');
+    wordSpan.className = 'vocab-word';
+    wordSpan.textContent = word;
+    const freqSpan = document.createElement('span');
+    freqSpan.className = 'vocab-freq';
+    freqSpan.textContent = `x${count}`;
+    item.appendChild(wordSpan);
+    item.appendChild(freqSpan);
     list.appendChild(item);
   });
 });
