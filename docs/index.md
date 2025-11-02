@@ -3,6 +3,13 @@
 欢迎！本仓库会把 data/transcripts 目录下的字幕文件（.txt 或 .srt）自动转换成 Markdown 学习包并发布到 GitHub Pages。
 
 ## 演示与入口
+- 测试视频（可直接在首页播放）
+  <iframe
+    src="./embed/?videoId=gN9dlisaQVM&en=/Baggio200cn/ted/gN9dlisaQVM/en.srt&zh=/Baggio200cn/ted/gN9dlisaQVM/zh.srt&title=TED%20Test%20Video&zhGloss=/Baggio200cn/ted/gN9dlisaQVM/glossary_zh.json&compact=1&autoplay=1"
+    width="100%" height="820" frameborder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowfullscreen
+  ></iframe>
 
 ### 🚀 TED 英语私教 Board — 三栏工作台
 👉 **[点击进入 TED 英语私教 Board](./board/)** 
