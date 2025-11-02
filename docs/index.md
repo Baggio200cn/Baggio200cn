@@ -2,7 +2,14 @@
 
 欢迎！本仓库会把 data/transcripts 目录下的字幕文件（.txt 或 .srt）自动转换成 Markdown 学习包并发布到 GitHub Pages。
 
-## 🎓 在线互动测试 / Interactive Online Test
+## 演示与入口
+
+### 🚀 TED 英语私教 Board — 三栏工作台
+👉 **[点击进入 TED 英语私教 Board](./board/)** 
+
+全新三栏学习工作台：素材库管理、视频字幕播放、离线练习生成（词汇/完形填空/跟读）、AI 学习包生成、智能对话助手。支持本地存储、导入导出，完全静态运行。
+
+### 🎓 在线互动测试 / Interactive Online Test
 👉 **[点击这里进入在线英语完形填空测试](./test/)** / **[Click here for Interactive English Cloze Test](./test/)**
 
 粘贴任何英文文本，自动生成选择题形式的完形填空测试，立即提交答案并查看得分！
@@ -30,10 +37,11 @@ Paste any English text to automatically generate multiple-choice cloze questions
 - [my_talk_20251031T035028Z](./my_talk_20251031T035028Z)
 - [my_talk_20251031T035028Z](./my_talk_20251031T035028Z)
   - [Online Test（在线测试）](./test/)
-  ## 演示与入口
-  - [TED 英语私教 Board（三栏工作台）](./board/)
+### 演示与入口
 
-- 测试视频（可直接在首页播放）
+- [TED 英语私教 Board（三栏工作台）](./board/)
+- [Online Test（在线测试）](./test/)
+
   <iframe
     src="./embed/?videoId=gN9dlisaQVM&en=/Baggio200cn/ted/gN9dlisaQVM/en.srt&zh=/Baggio200cn/ted/gN9dlisaQVM/zh.srt&title=TED%20Test%20Video&zhGloss=/Baggio200cn/ted/gN9dlisaQVM/glossary_zh.json&compact=1"
     width="100%" height="820" frameborder="0"

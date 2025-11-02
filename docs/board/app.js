@@ -206,12 +206,9 @@ ${text.slice(0,4000)}`;
 }
 
 function renderPackage(pkg){
-  // 保存到本地状态
   Store.up(s=>s.pkg[pkg.meta.title]=pkg);
-  // 清单
   const list=$("#pkgList");
   list.innerHTML = pkg.sections.map(sec=>`<li><label><input type="checkbox" checked> ${escapeHtml(sec.name)}</label></li>`).join("");
-  // 内容
   const cont=$("#pkgContent");
   cont.innerHTML = pkg.sections.map(sec=>`<section><h4>${escapeHtml(sec.name)}</h4><pre class="snippet">${escapeHtml(sec.content)}</pre></section>`).join("");
 }
@@ -243,32 +240,25 @@ function currentTalk(){ return Store.data.talks.find(t=>t.id===Store.data.curren
 
 /* ======= 交互绑定 ======= */
 function bind(){
-  // Tabs
   $$(".tab").forEach(btn=>btn.addEventListener("click",()=>{
     $$(".tab").forEach(b=>b.classList.remove("active")); btn.classList.add("active");
     const name=btn.dataset.tab; $$(".panel").forEach(p=>p.classList.add("hide")); $("#panel-"+name).classList.remove("hide");
   }));
-  // 播控
   $("#btnPrev").addEventListener("click",()=>seekTo(Math.max(0,(curIdx||0)-1)));
   $("#btnNext").addEventListener("click",()=>seekTo(Math.min(segsEn.length-1,(curIdx||0)+1)));
   $("#btnSpeak").addEventListener("click",()=>{ const en=segsEn[curIdx]?.text||""; try{ const u=new SpeechSynthesisUtterance(en); const v=speechSynthesis.getVoices().find(x=>/en/i.test(x.lang))||speechSynthesis.getVoices()[0]; if(v) u.voice=v; u.lang=(v?.lang)||"en-US"; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch{} });
-  // Practice
   $("#btnMakeVocab").addEventListener("click",()=>{ const n=+$("#vocabN").value||40; const v=buildVocab(transcriptText(), n); $("#vocabList").innerHTML=v.map(x=>`<div class="row between item"><div><b>${x.i}.</b> ${escapeHtml(x.w)}</div><div class="muted small">count:${x.c}</div></div>`).join(""); });
   $("#btnExportVocab").addEventListener("click",()=>{ const rows=["rank,word,count"]; $$("#vocabList .item").forEach((el,i)=>{ const word=el.querySelector("div").textContent.replace(/^\d+\.\s*/,"").trim(); const cnt=(el.querySelector(".muted")?.textContent||"").replace("count:","").trim(); rows.push(`${i+1},${word},${cnt}`); }); const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=(currentTalk()?.title||"vocab")+".csv"; a.click(); URL.revokeObjectURL(a.href); });
   $("#btnMakeCloze").addEventListener("click",()=>{ const n=+$("#clozeN").value||10, k=+$("#clozeK").value||4; const {quiz, preview}=makeCloze(transcriptText(), n, k); renderCloze({quiz, preview}); });
   $("#btnShowAns").addEventListener("click",showAnswers);
   $("#btnBuildShadow").addEventListener("click",buildShadow);
-  // Package
   $("#btnGenPackageLocal").addEventListener("click",()=>{ const t=currentTalk(); if(!t) return; const text=transcriptText(); const level=$("#level").value||"auto"; const pkg=pkgTemplateLocal({title:t.title||"Untitled", text, level}); renderPackage(pkg); $(".tab[data-tab='package']").click(); });
   $("#btnGenPackageLLM").addEventListener("click",async()=>{ const t=currentTalk(); if(!t) return; const text=transcriptText(); const level=$("#level").value||"auto"; try{ const pkg=await pkgTemplateLLM({title:t.title||"Untitled", text, level}); renderPackage(pkg); } catch(e){ alert("需要有效的 API Key。"); } $(".tab[data-tab='package']").click(); });
   $("#btnExportMD").addEventListener("click",()=>{ const t=currentTalk(); if(!t) return; const pkg=Store.data.pkg[t.title]; if(!pkg) return; exportMarkdown(pkg); });
-  // Chat
   $("#btnSend").addEventListener("click",chatSend); $("#btnClearChat").addEventListener("click",()=>($("#chatBox").innerHTML=""));
-  // 添加素材
   $("#btnAdd").addEventListener("click",()=>$("#dlgTalk").showModal());
   $("#btnSaveTalk").addEventListener("click",(e)=>{ e.preventDefault(); const title=$("#fTitle").value.trim(); const videoId=$("#fVid").value.trim(); const enUrl=$("#fEn").value.trim(); const zhUrl=$("#fZh").value.trim(); if(!title||!enUrl){ alert("至少填写 标题 + 英文字幕/文本 URL"); return; } addTalk({title, videoId, enUrl, zhUrl}); $("#dlgTalk").close(); $("#fTitle").value=$("#fVid").value=$("#fEn").value=$("#fZh").value=""; });
   $("#q").addEventListener("input",renderTalkList);
-  // 导出/导入
   $("#btnExportState").addEventListener("click",()=>{ const blob=new Blob([JSON.stringify(Store.data,null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="board_state.json"; a.click(); URL.revokeObjectURL(a.href); });
   $("#importState").addEventListener("change",async(e)=>{ const f=e.target.files?.[0]; if(!f) return; const text=await f.text(); try{ const data=JSON.parse(text); Store.data=data; Store.save(); renderTalkList(); loadTalk(); } catch{ alert("JSON 解析失败"); } e.target.value=""; });
 }
