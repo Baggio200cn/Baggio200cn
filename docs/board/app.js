@@ -1186,8 +1186,8 @@ function init() {
       id: '1',
       title: '示例素材 - gN9dlisaQVM',
       videoId: 'gN9dlisaQVM',
-      enUrl: '/Baggio200cn/ted/gN9dlisaQVM/en.srt',
-      zhUrl: '/Baggio200cn/ted/gN9dlisaQVM/zh.srt'
+      enUrl: '../ted/gN9dlisaQVM/en.srt',
+      zhUrl: '../ted/gN9dlisaQVM/zh.srt'
     });
     saveMaterialsToStorage();
     renderMaterialsList();
