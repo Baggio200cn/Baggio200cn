@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TED 英语私教 Board — 三栏工作台</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="brand">TED 英语私教 Board</div>
+    <nav class="nav">
+      <a href="../">首页</a>
+      <a href="../embed/">播放器</a>
+      <a href="../test/">在线测试</a>
+    </nav>
+    <div class="actions">
+      <button id="exportJSON" class="btn-sm">导出 JSON</button>
+      <button id="importJSON" class="btn-sm">导入 JSON</button>
+    </div>
+  </header>
+
+  <!-- Three-Column Layout -->
+  <div class="workspace">
+    <!-- Left Sidebar: Materials Library -->
+    <aside class="sidebar left-sidebar">
+      <div class="sidebar-header">
+        <h2>素材库</h2>
+        <button id="addMaterial" class="btn-primary">+ 添加素材</button>
+      </div>
+      <div class="search-box">
+        <input type="text" id="searchMaterials" placeholder="搜索素材..." />
+      </div>
+      <div id="materialsList" class="materials-list"></div>
+    </aside>
+
+    <!-- Center Workspace -->
+    <main class="main-workspace">
+      <div class="workspace-header">
+        <h3 id="currentTitle">请先选择或添加素材</h3>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" data-tab="transcript">字幕</button>
+        <button class="tab" data-tab="practice">练习</button>
+        <button class="tab" data-tab="package">学习包</button>
+      </div>
+
+      <!-- Tab Content: Transcript -->
+      <div id="transcriptTab" class="tab-content active">
+        <div id="videoContainer" class="video-container">
+          <div id="player"></div>
+          <div class="subs-overlay">
+            <div id="sub-en" class="sub en"></div>
+            <div id="sub-zh" class="sub zh"></div>
+          </div>
+        </div>
+
+        <div class="controls-bar">
+          <label><input type="checkbox" id="autoPause" checked> 句末自动暂停</label>
+          <label><input type="checkbox" id="autoScroll" checked> 自动滚动</label>
+          <button id="prevSentence" class="btn">上一句</button>
+          <button id="nextSentence" class="btn">下一句</button>
+          <button id="speakCurrent" class="btn">朗读当前句</button>
+        </div>
+
+        <div class="current-snippet">
+          <h4>当前句子</h4>
+          <div id="currentSnippet" class="snippet"></div>
+        </div>
+
+        <div class="timeline-container">
+          <h4>字幕时间轴</h4>
+          <div id="timeline" class="timeline"></div>
+        </div>
+      </div>
+
+      <!-- Tab Content: Practice -->
+      <div id="practiceTab" class="tab-content">
+        <div class="practice-section">
+          <h3>词汇提取</h3>
+          <div class="controls-row">
+            <label>目标词数: <input type="range" id="vocabCount" min="10" max="100" value="30" />
+              <span id="vocabCountValue">30</span>
+            </label>
+            <button id="generateVocab" class="btn-primary">生成词汇表</button>
+            <button id="exportVocabCSV" class="btn">导出 CSV</button>
+          </div>
+          <div id="vocabResult" class="result-box"></div>
+        </div>
+
+        <div class="practice-section">
+          <h3>完形填空</h3>
+          <div class="controls-row">
+            <label>题目数量: <input type="number" id="clozeCount" min="3" max="20" value="8" /></label>
+            <label>选项数量: <input type="number" id="clozeOptions" min="2" max="6" value="4" /></label>
+            <label>
+              <input type="radio" name="clozeMode" value="full" checked> 全文
+              <input type="radio" name="clozeMode" value="neighborhood"> 当前附近
+            </label>
+            <button id="generateCloze" class="btn-primary">生成题目</button>
+            <button id="showClozeAnswers" class="btn">显示答案</button>
+          </div>
+          <div id="clozeResult" class="result-box"></div>
+        </div>
+
+        <div class="practice-section">
+          <h3>跟读练习</h3>
+          <div class="controls-row">
+            <button id="generateShadowing" class="btn-primary">生成跟读文本</button>
+            <button id="exportShadowing" class="btn">导出文本</button>
+          </div>
+          <div id="shadowingResult" class="result-box"></div>
+        </div>
+      </div>
+
+      <!-- Tab Content: Package -->
+      <div id="packageTab" class="tab-content">
+        <div class="package-controls">
+          <button id="generateOfflinePackage" class="btn-primary">生成离线学习包</button>
+          <button id="generateLLMPackage" class="btn-primary">使用 LLM 生成学习包</button>
+          <button id="exportPackageMD" class="btn">导出 Markdown</button>
+        </div>
+
+        <div class="package-viewer">
+          <div class="package-sections">
+            <h4>学习包章节</h4>
+            <div id="packageSections" class="sections-list"></div>
+          </div>
+          <div class="package-content">
+            <div id="packageContent" class="content-display"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Sidebar: Assistant -->
+    <aside class="sidebar right-sidebar">
+      <div class="assistant-panel">
+        <h3>AI 助手配置</h3>
+        <div class="config-group">
+          <label>API Base URL:</label>
+          <input type="text" id="apiBase" value="https://api.openai.com/v1" placeholder="API Base URL" />
+        </div>
+        <div class="config-group">
+          <label>API Key:</label>
+          <input type="password" id="apiKey" placeholder="sk-..." />
+        </div>
+        <div class="config-status">
+          <span id="apiStatus" class="status-indicator">离线模式</span>
+        </div>
+      </div>
+
+      <div class="chat-panel">
+        <h3>学习对话</h3>
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="chat-input-box">
+          <input type="text" id="chatInput" placeholder="输入消息..." />
+          <button id="sendChat" class="btn-primary">发送</button>
+        </div>
+        <button id="clearChat" class="btn-sm">清空对话</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Add Material Modal -->
+  <div id="addMaterialModal" class="modal">
+    <div class="modal-content">
+      <h3>添加新素材</h3>
+      <div class="form-group">
+        <label>标题 *</label>
+        <input type="text" id="materialTitle" placeholder="例如：TED Talk Title" required />
+      </div>
+      <div class="form-group">
+        <label>YouTube 视频 ID（可选）</label>
+        <input type="text" id="materialVideoId" placeholder="例如：gN9dlisaQVM" />
+      </div>
+      <div class="form-group">
+        <label>英文字幕 URL *</label>
+        <input type="text" id="materialEnUrl" placeholder="https://... 或相对路径" required />
+      </div>
+      <div class="form-group">
+        <label>中文字幕 URL（可选）</label>
+        <input type="text" id="materialZhUrl" placeholder="https://... 或相对路径" />
+      </div>
+      <div class="modal-actions">
+        <button id="saveMaterial" class="btn-primary">保存</button>
+        <button id="cancelMaterial" class="btn">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+  <script async src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
