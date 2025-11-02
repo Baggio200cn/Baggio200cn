@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TED 英语私教 Board — 一页三栏工作台</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">TED 英语私教 Board</div>
+    <nav class="nav">
+      <a href="../">首页</a>
+      <a href="../embed/" target="_blank" rel="noopener">旧版播放器</a>
+      <a href="../test/" target="_blank" rel="noopener">在线测试</a>
+      <button id="btnExportState" class="btn small">导出学习包(JSON)</button>
+      <label class="btn small file"><input id="importState" type="file" accept=".json">导入</label>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <!-- 左：素材库 -->
+    <aside class="sidebar">
+      <div class="card">
+        <div class="row">
+          <input id="q" class="input" placeholder="搜索素材…">
+          <button id="btnAdd" class="btn">添加素材</button>
+        </div>
+        <div class="muted small" style="margin-top:6px">
+          建议：优先使用仓库中的 .srt（/docs/ted/.../en.srt, zh.srt），也可填可外链的文本/字幕 URL。
+        </div>
+      </div>
+      <div id="talkList" class="list"></div>
+    </aside>
+
+    <!-- 中：实训区 -->
+    <section class="workspace">
+      <div class="tabs">
+        <button class="tab active" data-tab="transcript">Transcript</button>
+        <button class="tab" data-tab="practice">Practice</button>
+        <button class="tab" data-tab="package">Package</button>
+      </div>
+
+      <div class="panel" id="panel-transcript">
+        <div class="card row wrap">
+          <label><input type="checkbox" id="autoPause" checked> 句末自动暂停</label>
+          <label><input type="checkbox" id="autoScroll" checked> 自动滚动</label>
+          <button id="btnPrev" class="btn">上一句</button>
+          <button id="btnNext" class="btn">下一句</button>
+          <button id="btnSpeak" class="btn">朗读当前句</button>
+        </div>
+
+        <div class="player-box">
+          <div id="ytPlayer"></div>
+          <div class="subs">
+            <div id="sub-en" class="sub en"></div>
+            <div id="sub-zh" class="sub zh"></div>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="card">
+            <h3>时间轴（点击跳转）</h3>
+            <div id="timeline" class="timeline"></div>
+          </div>
+          <div class="card">
+            <h3>当前片段</h3>
+            <pre id="snippet" class="snippet"></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel hide" id="panel-practice">
+        <div class="card row wrap">
+          <label>目标水平
+            <select id="level" class="input">
+              <option value="auto">自动</option>
+              <option value="A1">无经验/A1</option>
+              <option value="B1">CET4/B1</option>
+              <option value="B2">CET6/B2</option>
+              <option value="C1">IELTS/TOEFL/C1</option>
+            </select>
+          </label>
+          <label>词表条数 <input id="vocabN" class="input" type="number" value="40" min="10" max="200" style="width:92px"></label>
+          <button id="btnMakeVocab" class="btn">生成词表</button>
+          <button id="btnExportVocab" class="btn">导出CSV</button>
+          <label>填空题数 <input id="clozeN" class="input" type="number" value="10" min="5" max="40" style="width:92px"></label>
+          <label>每题选项 <input id="clozeK" class="input" type="number" value="4" min="2" max="6" style="width:92px"></label>
+          <button id="btnMakeCloze" class="btn">从全文生成填空</button>
+          <button id="btnShowAns" class="btn">显示答案</button>
+          <button id="btnBuildShadow" class="btn">生成跟读脚本</button>
+        </div>
+
+        <div class="grid two">
+          <div class="card">
+            <h3>词表</h3>
+            <div id="vocabList" class="list vocab"></div>
+          </div>
+          <div class="card">
+            <h3>听力填空</h3>
+            <div id="clozePreview" class="prompt hide"></div>
+            <div id="clozeQuiz" class="quiz"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>跟读脚本</h3>
+          <pre id="shadowScript" class="snippet"></pre>
+        </div>
+      </div>
+
+      <div class="panel hide" id="panel-package">
+        <div class="card row wrap">
+          <button id="btnGenPackageLocal" class="btn">一键生成学习包（离线）</button>
+          <button id="btnGenPackageLLM" class="btn primary">一键生成学习包（LLM）</button>
+          <button id="btnExportMD" class="btn">导出为 Markdown</button>
+        </div>
+        <div id="pkgChecklist" class="card">
+          <h3>学习包清单</h3>
+          <ul id="pkgList" class="checklist"></ul>
+        </div>
+        <div class="card">
+          <h3>学习包内容</h3>
+          <div id="pkgContent" class="doc"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右：助手区 -->
+    <aside class="assistant">
+      <div class="card">
+        <h3>助手与配置</h3>
+        <div class="muted small">无 Key 可离线记录；填入后可自动生成“例句/情景/对话/总结”。</div>
+        <label class="small">OpenAI 兼容 API Base
+          <input id="aiBase" class="input" placeholder="https://api.openai.com/v1">
+        </label>
+        <label class="small">API Key
+          <input id="aiKey" class="input" placeholder="sk-...（仅存本地）">
+        </label>
+      </div>
+      <div id="chatBox" class="chat"></div>
+      <div class="row">
+        <textarea id="chatInput" class="input" rows="3" placeholder="向助手提问，或描述想生成的练习…"></textarea>
+      </div>
+      <div class="row">
+        <button id="btnSend" class="btn primary">发送</button>
+        <button id="btnClearChat" class="btn">清空</button>
+      </div>
+    </aside>
+  </main>
+
+  <!-- 添加素材弹窗 -->
+  <dialog id="dlgTalk" class="dialog">
+    <form method="dialog" class="dialog-body">
+      <h3>添加素材</h3>
+      <label>标题 <input id="fTitle" class="input" placeholder="如：如何让压力成为朋友"></label>
+      <label>视频ID（可空）<input id="fVid" class="input" placeholder="YouTube ID，如 gN9dlisaQVM"></label>
+      <label>英文字幕或文本 URL <input id="fEn" class="input" placeholder="/Baggio200cn/ted/.../en.srt 或 https://..."></label>
+      <label>中文字幕 URL（可空）<input id="fZh" class="input" placeholder="/Baggio200cn/ted/.../zh.srt"></label>
+      <div class="row right">
+        <button class="btn" value="cancel">取消</button>
+        <button class="btn primary" id="btnSaveTalk" value="ok">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="./app.js"></script>
+  <script async src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
