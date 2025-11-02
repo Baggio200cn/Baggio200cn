@@ -19,21 +19,17 @@
   </header>
 
   <main class="layout">
-    <!-- 左：素材库 -->
     <aside class="sidebar">
       <div class="card">
         <div class="row">
           <input id="q" class="input" placeholder="搜索素材…">
           <button id="btnAdd" class="btn">添加素材</button>
         </div>
-        <div class="muted small" style="margin-top:6px">
-          建议：优先使用仓库中的 .srt（/docs/ted/.../en.srt, zh.srt），也可填可外链的文本/字幕 URL。
-        </div>
+        <div class="muted small" style="margin-top:6px">建议优先使用仓库中的 .srt，也可填可外链的文本/字幕 URL。</div>
       </div>
       <div id="talkList" class="list"></div>
     </aside>
 
-    <!-- 中：实训区 -->
     <section class="workspace">
       <div class="tabs">
         <button class="tab active" data-tab="transcript">Transcript</button>
@@ -126,7 +122,6 @@
       </div>
     </section>
 
-    <!-- 右：助手区 -->
     <aside class="assistant">
       <div class="card">
         <h3>助手与配置</h3>
@@ -149,7 +144,6 @@
     </aside>
   </main>
 
-  <!-- 添加素材弹窗 -->
   <dialog id="dlgTalk" class="dialog">
     <form method="dialog" class="dialog-body">
       <h3>添加素材</h3>
