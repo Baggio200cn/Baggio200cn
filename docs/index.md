@@ -37,9 +37,7 @@ Paste any English text to automatically generate multiple-choice cloze questions
 - [my_talk_20251031T035028Z](./my_talk_20251031T035028Z)
 - [my_talk_20251031T035028Z](./my_talk_20251031T035028Z)
   - [Online Test（在线测试）](./test/)
-  - [TED 英语私教 Board（三栏工作台）](./board/)
 
-## 演示与入口 (已移至顶部)
 
 - 测试视频（可直接在首页播放）
   <iframe
