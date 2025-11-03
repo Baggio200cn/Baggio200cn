@@ -26,6 +26,34 @@ function escapeReg(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
 function sample(a,n){ const x=a.slice(); const r=[]; while(r.length<Math.min(n,x.length)){ const i=Math.floor(Math.random()*x.length); r.push(x.splice(i,1)[0]); } return r; }
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
 
+/* ======= IFrame API 等待器（关键修复） ======= */
+let YTReadyPromise = null;
+function ensureYTReady() {
+  if (window.YT && window.YT.Player) return Promise.resolve(true);
+  if (!YTReadyPromise) {
+    YTReadyPromise = new Promise((resolve) => {
+      // 兼容 onYouTubeIframeAPIReady 回调
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = function() {
+        try { prev && prev(); } catch {}
+        resolve(true);
+      };
+      // 兜底轮询，避免某些情况下回调不触发
+      let tries = 0;
+      const timer = setInterval(() => {
+        if (window.YT && window.YT.Player) {
+          clearInterval(timer);
+          resolve(true);
+        } else if (++tries > 80) { // ~8s
+          clearInterval(timer);
+          resolve(false);
+        }
+      }, 100);
+    });
+  }
+  return YTReadyPromise;
+}
+
 /* ======= 素材库 ======= */
 function addTalk({title, videoId="", enUrl="", zhUrl=""}) {
   const id=uid();
@@ -53,7 +81,6 @@ function onYouTubeIframeAPIReady(){}
 
 async function fetchText(u){
   if (!u) return "";
-  // 处理本地伪 URL: local:<id>:<type>
   if (u.startsWith("local:")){
     const m = u.match(/^local:([a-z0-9]+)(?::(srt|txt|vtt))?$/i);
     const id = m?.[1]; const rec = id && Files.get(id);
@@ -105,14 +132,25 @@ async function loadTalk(){
 
   const box=$("#ytPlayer"); box.innerHTML="";
   if (talk.videoId){
-    YTPlayer = new YT.Player("ytPlayer", {
-      videoId: talk.videoId,
-      playerVars: { rel:0, modestbranding:1, playsinline:1, controls:1, autoplay:1 },
-      events: { 
-        onReady:()=>{ tick(); try{ YTPlayer.mute(); YTPlayer.playVideo(); }catch{} },
-        onStateChange:(e)=>{ if (e.data===YT.PlayerState.PAUSED) onPaused(); } 
-      }
-    });
+    // 等待 IFrame API 就绪（关键）
+    const ok = await ensureYTReady();
+    if (!ok) {
+      box.innerHTML = `<div class="muted small" style="padding:8px">YouTube 播放器未就绪（网络/API被拦截）。时间轴等功能仍可使用。</div>`;
+      return;
+    }
+    try {
+      YTPlayer = new YT.Player("ytPlayer", {
+        videoId: talk.videoId,
+        playerVars: { rel:0, modestbranding:1, playsinline:1, controls:1, autoplay:1 },
+        events: { 
+          onReady:()=>{ tick(); try{ YTPlayer.mute(); YTPlayer.playVideo(); }catch{} },
+          onStateChange:(e)=>{ if (e.data===YT.PlayerState.PAUSED) onPaused(); } 
+        }
+      });
+    } catch (e) {
+      console.warn("Create YT.Player failed:", e);
+      box.innerHTML = `<div class="muted small" style="padding:8px">创建播放器失败：${escapeHtml(String(e.message||e))}</div>`;
+    }
   } else {
     box.innerHTML = `<div class="muted small" style="padding:8px">未提供视频ID。你仍可用“时间轴/练习/学习包”。</div>`;
   }
@@ -263,7 +301,7 @@ async function chatSend(){
 }
 function currentTalk(){ return Store.data.talks.find(t=>t.id===Store.data.current); }
 
-/* ======= 添加素材对话框：增强导入 ======= */
+/* ======= 添加素材对话框（与之前版本一致） ======= */
 function setHint(el, text, ok){
   el.textContent = text || "";
   el.classList.toggle("ok", !!ok);
