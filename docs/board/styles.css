@@ -1,4 +1,4 @@
-:root { --bg:#0b0c10; --fg:#e5e7eb; --muted:#9aa0a6; --card:#10151f; --line:#1f2937; --accent:#60a5fa; }
+:root { --bg:#0b0c10; --fg:#e5e7eb; --muted:#9aa0a6; --card:#10151f; --line:#1f2937; --accent:#60a5fa; --ok:#16a34a; --err:#ef4444; }
 *{ box-sizing:border-box; }
 html,body{ margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; }
 a{ color:var(--accent); text-decoration:none; }
@@ -8,6 +8,9 @@ a{ color:var(--accent); text-decoration:none; }
 .btn.small{ font-size:12px; padding:4px 8px; }
 .btn.file input{ display:none; }
 .input{ background:#0f172a; color:var(--fg); border:1px solid #334155; border-radius:8px; padding:8px 10px; width:100%; }
+.hint{ font-size:12px; margin-left:6px; min-width:120px; }
+.hint.ok{ color:var(--ok); }
+.hint.err{ color:var(--err); }
 
 .topbar{ display:flex; align-items:center; justify-content:space-between; padding:10px 16px; border-bottom:1px solid var(--line); background:#0d1220; position:sticky; top:0; z-index:10; }
 .nav a, .nav .btn{ margin-left:8px; }
@@ -56,7 +59,7 @@ a{ color:var(--accent); text-decoration:none; }
 
 .dialog{ border:none; padding:0; background:transparent; }
 .dialog::backdrop{ background:rgba(4,10,20,.6); }
-.dialog-body{ width:560px; background:#0f172a; border:1px solid var(--line); border-radius:12px; padding:16px; }
+.dialog-body{ width:640px; background:#0f172a; border:1px solid var(--line); border-radius:12px; padding:16px; }
 .dialog-body h3{ margin:0 0 8px; }
 .dialog-body label{ display:block; margin:10px 0; }
 
