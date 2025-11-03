@@ -19,17 +19,21 @@
   </header>
 
   <main class="layout">
+    <!-- 左：素材库 -->
     <aside class="sidebar">
       <div class="card">
         <div class="row">
           <input id="q" class="input" placeholder="搜索素材…">
           <button id="btnAdd" class="btn">添加素材</button>
         </div>
-        <div class="muted small" style="margin-top:6px">建议优先使用仓库中的 .srt，也可填可外链的文本/字幕 URL。</div>
+        <div class="muted small" style="margin-top:6px">
+          支持三种方式：1) 外链 URL（建议 raw.githubusercontent.com / jsDelivr 等直链）；2) 上传本地 .srt/.txt；3) 右上角“导入JSON”。
+        </div>
       </div>
       <div id="talkList" class="list"></div>
     </aside>
 
+    <!-- 中：实训区 -->
     <section class="workspace">
       <div class="tabs">
         <button class="tab active" data-tab="transcript">Transcript</button>
@@ -122,6 +126,7 @@
       </div>
     </section>
 
+    <!-- 右：助手区 -->
     <aside class="assistant">
       <div class="card">
         <h3>助手与配置</h3>
@@ -144,13 +149,39 @@
     </aside>
   </main>
 
+  <!-- 添加素材弹窗（升级版） -->
   <dialog id="dlgTalk" class="dialog">
     <form method="dialog" class="dialog-body">
       <h3>添加素材</h3>
       <label>标题 <input id="fTitle" class="input" placeholder="如：如何让压力成为朋友"></label>
       <label>视频ID（可空）<input id="fVid" class="input" placeholder="YouTube ID，如 gN9dlisaQVM"></label>
-      <label>英文字幕或文本 URL <input id="fEn" class="input" placeholder="/Baggio200cn/ted/.../en.srt 或 https://..."></label>
-      <label>中文字幕 URL（可空）<input id="fZh" class="input" placeholder="/Baggio200cn/ted/.../zh.srt"></label>
+
+      <div class="row wrap">
+        <label style="flex:1">英文字幕/文本 URL
+          <input id="fEn" class="input" placeholder="https://... .srt / .txt / 相对路径">
+        </label>
+        <button id="btnTestEn" type="button" class="btn small">检测链接</button>
+        <button id="btnPickEn" type="button" class="btn small">上传文件</button>
+        <span id="enStatus" class="hint"></span>
+      </div>
+
+      <div class="row wrap">
+        <label style="flex:1">中文字幕 URL（可空）
+          <input id="fZh" class="input" placeholder="https://... .srt / 相对路径">
+        </label>
+        <button id="btnTestZh" type="button" class="btn small">检测链接</button>
+        <button id="btnPickZh" type="button" class="btn small">上传文件</button>
+        <span id="zhStatus" class="hint"></span>
+      </div>
+
+      <div class="row wrap">
+        <button id="btnFillSample" type="button" class="btn small">示例外链</button>
+        <span class="muted small">推荐测试外链（支持 CORS）：raw.githubusercontent.com 或 jsDelivr</span>
+      </div>
+
+      <input id="fEnFile" type="file" accept=".srt,.vtt,.txt" hidden>
+      <input id="fZhFile" type="file" accept=".srt,.vtt,.txt" hidden>
+
       <div class="row right">
         <button class="btn" value="cancel">取消</button>
         <button class="btn primary" id="btnSaveTalk" value="ok">保存</button>
