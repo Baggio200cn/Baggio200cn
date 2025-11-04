@@ -1,11 +1,12 @@
 /* ========================================================================
-   TED 英语私教 Board — app.js（覆盖版）
-   变更要点：
-   - 默认不自动暂停；仅在“手动暂停”时写入当前句到右侧聊天与“当前片段”
-   - 勾选“句末自动暂停”时，只自动停，但不写入（避免打断采集逻辑）
-   - 修复 YouTube IFrame API 未就绪导致脚本报错（YT is not defined）
-   - 导入增强：支持外链检测、上传本地 .srt/.vtt/.txt（local:xxxx 伪URL）、示例外链
-   - 其余：词表/填空/跟读/学习包（离线+LLM）保持不变
+   TED 英语私教 Board — app.js（完整覆盖版）
+   主要特性：
+   - 仅“手动暂停”时写入当前句；默认关闭“句末自动暂停”（可记住偏好）
+   - 稳健等待 YouTube IFrame API（避免 YT 未定义导致页面交互失效）
+   - 导入增强：外链检测 + 本地 .srt/.vtt/.txt 上传（生成 local:xxxx 伪 URL）
+   - getIndexAtTime 改为“向前夹取最近句”，字幕不完整也能采集
+   - 右侧助手：支持 OpenAI / DeepSeek / OpenRouter（自动按 Base 选默认模型；/model 指令可切换）
+   - 记住 Base/Key/Model、自动滚动、自动暂停偏好（localStorage）
    ======================================================================== */
 
 /* ======= 工具与存储 ======= */
@@ -49,16 +50,14 @@ function ensureYTReady() {
       };
       let tries = 0;
       const timer = setInterval(() => {
-        if (window.YT && window.YT.Player) {
-          clearInterval(timer); resolve(true);
-        } else if (++tries > 80) {
-          clearInterval(timer); resolve(false); // ~8s 兜底
-        }
+        if (window.YT && window.YT.Player) { clearInterval(timer); resolve(true); }
+        else if (++tries > 80) { clearInterval(timer); resolve(false); } // ~8s 兜底
       }, 100);
     });
   }
   return YTReadyPromise;
 }
+function onYouTubeIframeAPIReady(){ /* 由 ensureYTReady 接管 */ }
 
 /* ======= 素材库 ======= */
 function addTalk({title, videoId="", enUrl="", zhUrl=""}) {
@@ -120,8 +119,8 @@ function getIndexAtTime(t,segs){
 
 /* ======= 播放/界面联动 ======= */
 let YTPlayer, segsEn=[], segsZh=[], curIdx=-1, lastCapturedIdx=-1;
-let isAutoPausing = false; // 自动暂停标记：仅用来“跳过写入”
-let autoPausePref = false; // 用户偏好（默认关闭，仅手动暂停写入）
+let isAutoPausing = false;     // 自动暂停标记：仅用来“跳过写入”
+let autoPausePref = false;     // 用户偏好（默认 false，仅手动暂停写入）
 
 async function loadTalk(){
   const talk=Store.data.talks.find(t=>t.id===Store.data.current); if(!talk) return;
@@ -218,11 +217,6 @@ function seekTo(i){
   if (YTPlayer?.seekTo){ YTPlayer.seekTo(segsEn[i].start+0.01, true); YTPlayer.playVideo(); }
 }
 
-/* ======= 控件 ======= */
-$("#btnPrev")?.addEventListener("click",()=>seekTo(Math.max(0,(curIdx||0)-1)));
-$("#btnNext")?.addEventListener("click",()=>seekTo(Math.min(segsEn.length-1,(curIdx||0)+1)));
-$("#btnSpeak")?.addEventListener("click",()=>{ const en=segsEn[curIdx]?.text||""; try{ const u=new SpeechSynthesisUtterance(en); const v=speechSynthesis.getVoices().find(x=>/en/i.test(x.lang))||speechSynthesis.getVoices()[0]; if(v) u.voice=v; u.lang=(v?.lang)||"en-US"; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch{} });
-
 /* ======= 练习 ======= */
 function transcriptText(){ return segsEn.map(x=>x.text).join(" "); }
 function buildVocab(text, n=40){
@@ -251,11 +245,6 @@ function renderCloze({quiz, preview}){
     div.appendChild(list); box.appendChild(div);
   });
 }
-$("#btnMakeCloze")?.addEventListener("click",()=>{ const n=+$("#clozeN").value||10, k=+$("#clozeK").value||4; const {quiz, preview}=makeCloze(transcriptText(), n, k); renderCloze({quiz, preview}); });
-$("#btnShowAns")?.addEventListener("click",()=>{ $$("#clozeQuiz .q").forEach(q=>{ const ans=q.dataset.answer; const lab=q.querySelector(`label[data-val="${CSS.escape(ans)}"]`); if(lab) lab.style.outline="2px solid #16a34a"; }); });
-$("#btnBuildShadow")?.addEventListener("click",()=>{ const lines=segsEn.map((s,i)=>`${String(i+1).padStart(2,"0")}. ${s.text}`); $("#shadowScript").textContent=lines.join("\n"); });
-$("#btnMakeVocab")?.addEventListener("click",()=>{ const n=+$("#vocabN").value||40; const v=buildVocab(transcriptText(), n); $("#vocabList").innerHTML=v.map(x=>`<div class="row between item"><div><b>${x.i}.</b> ${escapeHtml(x.w)}</div><div class="muted small">count:${x.c}</div></div>`).join(""); });
-$("#btnExportVocab")?.addEventListener("click",()=>{ const rows=["rank,word,count"]; $$("#vocabList .item").forEach((el,i)=>{ const word=el.querySelector("div").textContent.replace(/^\d+\.\s*/,"").trim(); const cnt=(el.querySelector(".muted")?.textContent||"").replace("count:","").trim(); rows.push(`${i+1},${word},${cnt}`); }); const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=(currentTalk()?.title||"vocab")+".csv"; a.click(); URL.revokeObjectURL(a.href); });
 
 /* ======= 学习包（离线/LLM） ======= */
 function pkgTemplateLocal({title, text, level}){
@@ -282,33 +271,56 @@ function pkgTemplateLocal({title, text, level}){
     ]
   };
 }
-async function pkgTemplateLLM({title, text, level}){
-  const base = ($("#aiBase").value || "https://api.openai.com/v1").trim();
-  const key = ($("#aiKey").value || "").trim();
-  if (!key) throw new Error("No API key");
-  const prompt = `You are an English tutor. Create a bilingual learning package for the talk titled "${title}". Level: ${level}.
-Return Markdown sections with headings:
-1) Video Information
-2) Speaker Biography
-3) Key Vocabulary (with English definitions and Chinese)
-4) Key Phrases & Expressions (with meanings and CN)
-5) Full Transcript (keep original, no translation)
-6) Discussion Questions (8)
-7) Key Takeaways (7)
-8) Learning Objectives (clear, measurable)
-Use concise bullet lists. Transcript source (truncated if too long):
-${text.slice(0,4000)}`;
-  const r = await fetch(base + "/chat/completions", {
-    method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${key}` },
-    body: JSON.stringify({ model:"gpt-4o-mini", messages:[{role:"user", content: prompt}] })
-  });
-  const j = await r.json();
-  const md = j?.choices?.[0]?.message?.content || "Error generating package.";
-  return {
-    meta: { title, level, mode:"llm" },
-    sections: [{ key:"package_md", name:"Learning Package (LLM)", content: md }]
-  };
+
+/* ======= 右侧助手 ======= */
+function pickDefaultModel(base){
+  const b=(base||"").toLowerCase();
+  if (b.includes("deepseek.com")) return "deepseek-chat";
+  if (b.includes("openrouter.ai")) return "openai/gpt-4o-mini";
+  return "gpt-4o-mini"; // OpenAI 默认
 }
+function getAIConfig(){
+  const base = ($("#aiBase").value || "").trim();
+  const key  = ($("#aiKey").value  || "").trim();
+  // 允许用户自定义模型（/model 指令或之前保存的值），否则按 Base 推断默认
+  const savedModel = localStorage.getItem("ai_model") || "";
+  const model = savedModel || pickDefaultModel(base);
+  return { base, key, model };
+}
+function chatAdd(role, text){
+  const box=$("#chatBox"); const div=document.createElement("div"); div.className="msg "+role;
+  div.innerHTML=`<div class="role">${role==="user"?"你":"助手"}</div><div class="bubble">${escapeHtml(text).replace(/\n/g,"<br>")}</div>`;
+  box.appendChild(div); box.scrollTop=box.scrollHeight;
+}
+async function chatSend(){
+  let t=$("#chatInput").value.trim(); if(!t) return;
+  // 支持指令：/model <name>
+  if (t.toLowerCase().startsWith("/model ")){
+    const m=t.slice(7).trim();
+    if (m){ localStorage.setItem("ai_model", m); chatAdd("assistant", `模型已切换为：${m}`); }
+    $("#chatInput").value=""; return;
+  }
+
+  $("#chatInput").value=""; chatAdd("user", t);
+  const {base,key,model} = getAIConfig();
+  if (!key || !base){ chatAdd("assistant","离线模式：未配置 API Base/Key。"); return; }
+
+  try{
+    const context = `Context title: ${currentTalk()?.title||""}. Current sentence: ${($("#snippet").textContent||"").slice(0,200)}`;
+    const r = await fetch(base.replace(/\/+$/,"")+"/chat/completions",{
+      method:"POST",
+      headers:{"Content-Type":"application/json", Authorization:`Bearer ${key}`},
+      body:JSON.stringify({ model, messages:[{role:"user", content: `${context}\n\nUser: ${t}`}] })
+    });
+    const j=await r.json();
+    const msg = j?.choices?.[0]?.message?.content || j?.error?.message || JSON.stringify(j).slice(0,1200);
+    chatAdd("assistant", msg);
+  }catch(e){
+    chatAdd("assistant","调用失败："+(e?.message||"请检查 API 配置或网络。"));
+  }
+}
+
+/* ======= 练习/学习包 事件 ======= */
 function renderPackage(pkg){
   Store.up(s=>s.pkg[pkg.meta.title]=pkg);
   const list=$("#pkgList");
@@ -322,31 +334,32 @@ function exportMarkdown(pkg){
   const blob = new Blob([lines.join("\n")], {type:"text/markdown;charset=utf-8"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`${pkg.meta.title.replace(/\s+/g,'_')}_package.md`; a.click(); URL.revokeObjectURL(a.href);
 }
-$("#btnGenPackageLocal")?.addEventListener("click",()=>{ const t=currentTalk(); if(!t) return; const text=transcriptText(); const level=$("#level").value||"auto"; const pkg=pkgTemplateLocal({title:t.title||"Untitled", text, level}); renderPackage(pkg); $(".tab[data-tab='package']").click(); });
-$("#btnGenPackageLLM")?.addEventListener("click",async()=>{ const t=currentTalk(); if(!t) return; const text=transcriptText(); const level=$("#level").value||"auto"; try{ const pkg=await pkgTemplateLLM({title:t.title||"Untitled", text, level}); renderPackage(pkg); } catch(e){ alert("需要有效的 API Key。"); } $(".tab[data-tab='package']").click(); });
-$("#btnExportMD")?.addEventListener("click",()=>{ const t=currentTalk(); if(!t) return; const pkg=Store.data.pkg[t.title]; if(!pkg) return; exportMarkdown(pkg); });
-
-/* ======= 右侧聊天 ======= */
-function chatAdd(role, text){
-  const box=$("#chatBox"); const div=document.createElement("div"); div.className="msg "+role;
-  div.innerHTML=`<div class="role">${role==="user"?"你":"助手"}</div><div class="bubble">${escapeHtml(text).replace(/\n/g,"<br>")}</div>`;
-  box.appendChild(div); box.scrollTop=box.scrollHeight;
+async function pkgTemplateLLM({title, text, level}){
+  const {base,key,model} = getAIConfig();
+  if (!key || !base) throw new Error("No API key or base");
+  const prompt = `You are an English tutor. Create a bilingual learning package for the talk titled "${title}". Level: ${level}.
+Return Markdown sections with headings:
+1) Video Information
+2) Speaker Biography
+3) Key Vocabulary (with English definitions and Chinese)
+4) Key Phrases & Expressions (with meanings and CN)
+5) Full Transcript (keep original, no translation)
+6) Discussion Questions (8)
+7) Key Takeaways (7)
+8) Learning Objectives (clear, measurable)
+Use concise bullet lists. Transcript source (truncated if too long):
+${text.slice(0,4000)}`;
+  const r = await fetch(base.replace(/\/+$/,"")+"/chat/completions",{
+    method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${key}` },
+    body: JSON.stringify({ model, messages:[{role:"user", content: prompt}] })
+  });
+  const j = await r.json();
+  const md = j?.choices?.[0]?.message?.content || j?.error?.message || "Error generating package.";
+  return {
+    meta: { title, level, mode:"llm" },
+    sections: [{ key:"package_md", name:"Learning Package (LLM)", content: md }]
+  };
 }
-async function chatSend(){
-  const t=$("#chatInput").value.trim(); if(!t) return; $("#chatInput").value=""; chatAdd("user", t);
-  const base = ($("#aiBase").value || "https://api.openai.com/v1").trim();
-  const key = ($("#aiKey").value || "").trim();
-  if (!key){ chatAdd("assistant","离线模式：已记录。可使用 Practice/Package 继续。"); return; }
-  try{
-    const content = `Assistant for English learning. Context title: ${currentTalk()?.title||""}. Current sentence: ${($("#snippet").textContent||"").slice(0,200)}. User: ${t}`;
-    const r = await fetch(base+"/chat/completions",{method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${key}`}, body:JSON.stringify({model:"gpt-4o-mini", messages:[{role:"user", content}]})});
-    const j=await r.json(); chatAdd("assistant", j?.choices?.[0]?.message?.content || JSON.stringify(j).slice(0,1200));
-  }catch{ chatAdd("assistant","调用失败，请检查 API 配置或网络。"); }
-}
-$("#btnSend")?.addEventListener("click",chatSend);
-$("#btnClearChat")?.addEventListener("click",()=>($("#chatBox").innerHTML=""));
-
-function currentTalk(){ return Store.data.talks.find(t=>t.id===Store.data.current); }
 
 /* ======= “添加素材”对话框：外链检测 + 上传 ======= */
 function setHint(el, text, ok){
@@ -362,11 +375,11 @@ async function testUrl(u, el){
   else setHint(el, "已读取文本（非srt，将按纯文本处理）", true);
 }
 function bindDialog(){
-  $("#btnAdd").addEventListener("click",()=>$("#dlgTalk").showModal());
-  $("#btnPickEn").addEventListener("click",()=>$("#fEnFile").click());
-  $("#btnPickZh").addEventListener("click",()=>$("#fZhFile").click());
+  $("#btnAdd")?.addEventListener("click",()=>$("#dlgTalk").showModal());
+  $("#btnPickEn")?.addEventListener("click",()=>$("#fEnFile").click());
+  $("#btnPickZh")?.addEventListener("click",()=>$("#fZhFile").click());
 
-  $("#fEnFile").addEventListener("change", async (e)=>{
+  $("#fEnFile")?.addEventListener("change", async (e)=>{
     const f=e.target.files?.[0]; if(!f) return;
     const text = await f.text(); const ext = (f.name.split(".").pop()||"txt").toLowerCase();
     const id = Files.put(text, ext==="srt"?"srt":(ext==="vtt"?"vtt":"txt"));
@@ -374,7 +387,7 @@ function bindDialog(){
     setHint($("#enStatus"), `本地文件：${f.name}`, true);
     e.target.value="";
   });
-  $("#fZhFile").addEventListener("change", async (e)=>{
+  $("#fZhFile")?.addEventListener("change", async (e)=>{
     const f=e.target.files?.[0]; if(!f) return;
     const text = await f.text(); const ext = (f.name.split(".").pop()||"srt").toLowerCase();
     const id = Files.put(text, ext==="srt"?"srt":(ext==="vtt"?"vtt":"txt"));
@@ -383,10 +396,10 @@ function bindDialog(){
     e.target.value="";
   });
 
-  $("#btnTestEn").addEventListener("click",()=>testUrl($("#fEn").value.trim(), $("#enStatus")));
-  $("#btnTestZh").addEventListener("click",()=>testUrl($("#fZh").value.trim(), $("#zhStatus")));
+  $("#btnTestEn")?.addEventListener("click",()=>testUrl($("#fEn").value.trim(), $("#enStatus")));
+  $("#btnTestZh")?.addEventListener("click",()=>testUrl($("#fZh").value.trim(), $("#zhStatus")));
 
-  $("#btnFillSample").addEventListener("click", ()=>{
+  $("#btnFillSample")?.addEventListener("click", ()=>{
     $("#fTitle").value = "外链测试素材（raw.githubusercontent.com）";
     $("#fVid").value = "gN9dlisaQVM";
     $("#fEn").value = "https://raw.githubusercontent.com/Baggio200cn/Baggio200cn/main/docs/ted/sample/en.srt";
@@ -395,7 +408,7 @@ function bindDialog(){
     setHint($("#zhStatus"), "示例外链", true);
   });
 
-  $("#btnSaveTalk").addEventListener("click",(e)=>{
+  $("#btnSaveTalk")?.addEventListener("click",(e)=>{
     e.preventDefault();
     const title=$("#fTitle").value.trim();
     const videoId=$("#fVid").value.trim();
@@ -409,32 +422,62 @@ function bindDialog(){
   });
 }
 
-/* ======= Tabs / 导入导出 / 偏好 ======= */
+/* ======= Tabs / 导入导出 / 偏好 / 控件绑定 ======= */
 function bind(){
   // Tabs
   $$(".tab").forEach(btn=>btn.addEventListener("click",()=>{
     $$(".tab").forEach(b=>b.classList.remove("active")); btn.classList.add("active");
     const name=btn.dataset.tab; $$(".panel").forEach(p=>p.classList.add("hide")); $("#panel-"+name).classList.remove("hide");
   }));
+
+  // 播控
+  $("#btnPrev")?.addEventListener("click",()=>seekTo(Math.max(0,(curIdx||0)-1)));
+  $("#btnNext")?.addEventListener("click",()=>seekTo(Math.min(segsEn.length-1,(curIdx||0)+1)));
+  $("#btnSpeak")?.addEventListener("click",()=>{ const en=segsEn[curIdx]?.text||""; try{ const u=new SpeechSynthesisUtterance(en); const v=speechSynthesis.getVoices().find(x=>/en/i.test(x.lang))||speechSynthesis.getVoices()[0]; if(v) u.voice=v; u.lang=(v?.lang)||"en-US"; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch{} });
+
+  // Practice
+  $("#btnMakeVocab")?.addEventListener("click",()=>{ const n=+$("#vocabN").value||40; const v=buildVocab(transcriptText(), n); $("#vocabList").innerHTML=v.map(x=>`<div class="row between item"><div><b>${x.i}.</b> ${escapeHtml(x.w)}</div><div class="muted small">count:${x.c}</div></div>`).join(""); });
+  $("#btnExportVocab")?.addEventListener("click",()=>{ const rows=["rank,word,count"]; $$("#vocabList .item").forEach((el,i)=>{ const word=el.querySelector("div").textContent.replace(/^\d+\.\s*/,"").trim(); const cnt=(el.querySelector(".muted")?.textContent||"").replace("count:","").trim(); rows.push(`${i+1},${word},${cnt}`); }); const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=(currentTalk()?.title||"vocab")+".csv"; a.click(); URL.revokeObjectURL(a.href); });
+  $("#btnMakeCloze")?.addEventListener("click",()=>{ const n=+$("#clozeN").value||10, k=+$("#clozeK").value||4; const {quiz, preview}=makeCloze(transcriptText(), n, k); renderCloze({quiz, preview}); });
+  $("#btnShowAns")?.addEventListener("click",()=>{ $$("#clozeQuiz .q").forEach(q=>{ const ans=q.dataset.answer; const lab=q.querySelector(`label[data-val="${CSS.escape(ans)}"]`); if(lab) lab.style.outline="2px solid #16a34a"; }); });
+  $("#btnBuildShadow")?.addEventListener("click",()=>{ const lines=segsEn.map((s,i)=>`${String(i+1).padStart(2,"0")}. ${s.text}`); $("#shadowScript").textContent=lines.join("\n"); });
+
+  // Package
+  $("#btnGenPackageLocal")?.addEventListener("click",()=>{ const t=currentTalk(); if(!t) return; const text=transcriptText(); const level=$("#level").value||"auto"; const pkg=pkgTemplateLocal({title:t.title||"Untitled", text, level}); renderPackage(pkg); $(".tab[data-tab='package']").click(); });
+  $("#btnGenPackageLLM")?.addEventListener("click",async()=>{ const t=currentTalk(); if(!t) return; const text=transcriptText(); const level=$("#level").value||"auto"; try{ const pkg=await pkgTemplateLLM({title:t.title||"Untitled", text, level}); renderPackage(pkg); } catch(e){ alert("需要有效的 API Base/Key。"); } $(".tab[data-tab='package']").click(); });
+  $("#btnExportMD")?.addEventListener("click",()=>{ const t=currentTalk(); if(!t) return; const pkg=Store.data.pkg[t.title]; if(!pkg) return; exportMarkdown(pkg); });
+
+  // Chat
+  $("#btnSend")?.addEventListener("click",chatSend);
+  $("#btnClearChat")?.addEventListener("click",()=>($("#chatBox").innerHTML=""));
+
   // 导出/导入
   $("#btnExportState")?.addEventListener("click",()=>{ const blob=new Blob([JSON.stringify(Store.data,null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="board_state.json"; a.click(); URL.revokeObjectURL(a.href); });
   $("#importState")?.addEventListener("change",async(e)=>{ const f=e.target.files?.[0]; if(!f) return; const text=await f.text(); try{ const data=JSON.parse(text); Store.data=data; Store.save(); renderTalkList(); loadTalk(); } catch{ alert("JSON 解析失败"); } e.target.value=""; });
 
-  // 记住自动滚动偏好（可选，默认开）
+  // 偏好：自动滚动（默认开）
   const savedScroll = localStorage.getItem('board_autoScroll');
-  if (savedScroll !== null) $("#autoScroll").checked = savedScroll === '1';
-  $("#autoScroll").addEventListener("change",(e)=>localStorage.setItem('board_autoScroll', e.target.checked?'1':'0'));
+  if (savedScroll !== null) $("#autoScroll").checked = savedScroll === '1'; else $("#autoScroll").checked = true;
+  $("#autoScroll")?.addEventListener("change",(e)=>localStorage.setItem('board_autoScroll', e.target.checked?'1':'0'));
 
-  // 记住“句末自动暂停”偏好（默认关闭）
+  // 偏好：“句末自动暂停”（默认关，仅手动暂停写入）
   const savedAP = localStorage.getItem('board_autoPause');
   if (savedAP !== null) $("#autoPause").checked = savedAP === '1'; else $("#autoPause").checked = false;
   autoPausePref = $("#autoPause").checked;
-  $("#autoPause").addEventListener("change",(e)=>{ autoPausePref = e.target.checked; localStorage.setItem('board_autoPause', e.target.checked?'1':'0'); });
+  $("#autoPause")?.addEventListener("change",(e)=>{ autoPausePref = e.target.checked; localStorage.setItem('board_autoPause', e.target.checked?'1':'0'); });
 
+  // 记住 Base/Key
+  const savedBase = localStorage.getItem('ai_base'); if (savedBase) $("#aiBase").value = savedBase;
+  const savedKey  = localStorage.getItem('ai_key');  if (savedKey)  $("#aiKey").value  = savedKey;
+  $("#aiBase")?.addEventListener("change",(e)=>{ const v=(e.target.value||"").trim(); if (v) localStorage.setItem('ai_base', v); else localStorage.removeItem('ai_base'); });
+  $("#aiKey")?.addEventListener("change",(e)=>{ const v=(e.target.value||"").trim(); if (v) localStorage.setItem('ai_key', v); else localStorage.removeItem('ai_key'); });
+
+  // 绑定“添加素材”对话框行为
   bindDialog();
 }
 
 /* ======= 启动 ======= */
+function currentTalk(){ return Store.data.talks.find(t=>t.id===Store.data.current); }
 function boot(){
   Store.load(); Files.load();
   if (!Store.data.talks.length){
