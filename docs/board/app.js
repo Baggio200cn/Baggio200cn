@@ -1,12 +1,10 @@
 /* ========================================================================
-   TED 英语私教 Board — app.js（完整覆盖版）
-   主要特性：
-   - 仅“手动暂停”时写入当前句；默认关闭“句末自动暂停”（可记住偏好）
-   - 稳健等待 YouTube IFrame API（避免 YT 未定义导致页面交互失效）
-   - 导入增强：外链检测 + 本地 .srt/.vtt/.txt 上传（生成 local:xxxx 伪 URL）
-   - getIndexAtTime 改为“向前夹取最近句”，字幕不完整也能采集
-   - 右侧助手：支持 OpenAI / DeepSeek / OpenRouter（自动按 Base 选默认模型；/model 指令可切换）
-   - 记住 Base/Key/Model、自动滚动、自动暂停偏好（localStorage）
+   TED 英语私教 Board — app.js（修复版：切换素材/暂停采集/句子合并）
+   变更要点：
+   - 左栏素材点击切换：改为事件委托，避免重渲染后点击失效
+   - 暂停采集更稳：支持“末尾兜底 + 冷却写入（3s）”，避免不写入或重复刷屏
+   - 合并碎片字幕：按标点与时间间隔自动合并英文片段，并按时间窗口合并中文
+   - 仍保持：仅“手动暂停”时写入（默认关“句末自动暂停”），DeepSeek/OpenAI 自动模型，导入增强
    ======================================================================== */
 
 /* ======= 工具与存储 ======= */
@@ -57,7 +55,7 @@ function ensureYTReady() {
   }
   return YTReadyPromise;
 }
-function onYouTubeIframeAPIReady(){ /* 由 ensureYTReady 接管 */ }
+function onYouTubeIframeAPIReady(){}
 
 /* ======= 素材库 ======= */
 function addTalk({title, videoId="", enUrl="", zhUrl=""}) {
@@ -77,10 +75,14 @@ function renderTalkList(){
       <div class="muted small">${t.videoId?`YT:${t.videoId} · `:""}${shortUrl(t.enUrl)} ${t.zhUrl?"· zh":""}</div>
     </div>`;
   }).join("") : `<div class="muted small">暂无素材。点击“添加素材”。</div>`;
-  $$("#talkList .item").forEach(el=>el.addEventListener("click",()=>selectTalk(el.dataset.id)));
+  // 事件委托：解决“切换素材不生效”
+  box.onclick = (e)=>{
+    const it = e.target.closest(".item");
+    if (it && it.dataset.id) selectTalk(it.dataset.id);
+  };
 }
 
-/* ======= 加载/解析字幕 ======= */
+/* ======= 加载/解析/合并字幕 ======= */
 async function fetchText(u){
   if (!u) return "";
   if (u.startsWith("local:")){
@@ -108,6 +110,44 @@ function parsePlain(text){
 function toSec(h,m,s,ms){ return (+h)*3600+(+m)*60+(+s)+(+ms)/1000; }
 function fmt(sec){ const s=Math.floor(sec%60).toString().padStart(2,"0"), m=Math.floor((sec/60)%60).toString().padStart(2,"0"), h=Math.floor(sec/3600).toString().padStart(2,"0"); return (h!=="00"?h+":":"")+m+":"+s; }
 
+/* 合并规则： 
+   - 与上一句间隔 <= 0.35s 一定合并
+   - 或上一句末尾不是标点(.?!…)，且间隔 <= 1.0s 则合并
+   - 合并时收缩空白，避免“street  from” 这类断裂
+*/
+function mergeSegments(segs){
+  const merged=[];
+  const endPunc=/[.?!…。！？”’'"]$/;
+  let buf=null;
+  for(const s of (segs||[])){
+    if(!buf){ buf={start:s.start, end:s.end, text:s.text}; continue; }
+    const gap = s.start - buf.end;
+    const joinable = gap<=0.35 || (!endPunc.test(buf.text.trim()) && gap<=1.0);
+    if(joinable){
+      buf.end = Math.max(buf.end, s.end);
+      buf.text = (buf.text + " " + s.text).replace(/\s+/g," ").trim();
+    }else{
+      merged.push(buf); buf={start:s.start, end:s.end, text:s.text};
+    }
+  }
+  if(buf) merged.push(buf);
+  return merged;
+}
+// 依据英文合并段的时间窗口，把中文若干小段拼到一起（尽量对齐）
+function mergeZhByEn(enMerged, zhSegs){
+  if(!zhSegs?.length) return enMerged.map(x=>({start:x.start,end:x.end,text:""}));
+  const out=[]; let j=0;
+  for(const en of enMerged){
+    const texts=[];
+    while(j<zhSegs.length && zhSegs[j].end<=en.end+0.1){
+      if(zhSegs[j].start>=en.start-0.1) texts.push(zhSegs[j].text);
+      j++;
+    }
+    out.push({start:en.start,end:en.end,text:texts.join(" ").replace(/\s+/g," ").trim()});
+  }
+  return out;
+}
+
 /* 改进：超出最后一句也“夹取到最近上一句”；仅在第一句之前返回 -1 */
 function getIndexAtTime(t,segs){
   if(!segs || !segs.length) return -1;
@@ -118,21 +158,30 @@ function getIndexAtTime(t,segs){
 }
 
 /* ======= 播放/界面联动 ======= */
-let YTPlayer, segsEn=[], segsZh=[], curIdx=-1, lastCapturedIdx=-1;
+let YTPlayer, segsEn=[], segsZh=[], curIdx=-1;
+let lastCapturedIdx=-1, lastCapturedTime=-1;
 let isAutoPausing = false;     // 自动暂停标记：仅用来“跳过写入”
 let autoPausePref = false;     // 用户偏好（默认 false，仅手动暂停写入）
 
 async function loadTalk(){
   const talk=Store.data.talks.find(t=>t.id===Store.data.current); if(!talk) return;
+
+  // 重置 UI
   $("#timeline").innerHTML=""; $("#snippet").textContent=""; $("#sub-en").textContent=$("#sub-zh").textContent="";
-  segsEn=[]; segsZh=[]; curIdx=-1; lastCapturedIdx=-1;
+  segsEn=[]; segsZh=[]; curIdx=-1; lastCapturedIdx=-1; lastCapturedTime=-1;
 
+  // 解析
   const enRaw=await fetchText(talk.enUrl);
-  if (/\.(srt|vtt)(\?|#|$)/i.test(talk.enUrl) || talk.enUrl.startsWith("local:")) { segsEn=parseSRT(enRaw)||[]; }
-  else { segsEn=parsePlain(enRaw||""); }
-
   const zhRaw=await fetchText(talk.zhUrl);
-  if (zhRaw && (/\.(srt|vtt)(\?|#|$)/i.test(talk.zhUrl) || talk.zhUrl?.startsWith("local:"))) segsZh=parseSRT(zhRaw)||[];
+
+  const enSegsRaw = (/\.(srt|vtt)(\?|#|$)/i.test(talk.enUrl) || talk.enUrl.startsWith("local:")) ? parseSRT(enRaw) : parsePlain(enRaw||"");
+  const zhSegsRaw = (zhRaw && ((/\.(srt|vtt)(\?|#|$)/i.test(talk.zhUrl)) || talk.zhUrl?.startsWith("local:"))) ? parseSRT(zhRaw) : [];
+
+  // 合并碎片字幕
+  const enMerged = mergeSegments(enSegsRaw||[]);
+  const zhMerged = mergeZhByEn(enMerged, zhSegsRaw||[]);
+  segsEn = enMerged;
+  segsZh = zhMerged;
 
   // 时间轴
   const tl=$("#timeline");
@@ -141,10 +190,11 @@ async function loadTalk(){
       <div class="muted small">${fmt(s.start)} → ${fmt(s.end)}</div>
       <div>${escapeHtml(s.text)}</div>
       <div class="muted small">${escapeHtml(segsZh[i]?.text||"")}</div></div>`).join("");
-    $$("#timeline .seg").forEach(el=>el.addEventListener("click",()=>seekTo(+el.dataset.i)));
   }else{
     tl.innerHTML = `<div class="muted small">未能加载英文内容（请检查 URL 或改用“上传文件”）。</div>`;
   }
+  // 时间轴点击跳播（事件委托）
+  tl.onclick = (e)=>{ const seg=e.target.closest(".seg"); if(seg) seekTo(+seg.dataset.i); };
 
   // 播放器
   const box=$("#ytPlayer"); box.innerHTML="";
@@ -194,14 +244,20 @@ function onPaused(){
   // 自动暂停：只停止，不写入
   if (isAutoPausing) { isAutoPausing = false; return; }
 
+  let t = 0;
   if (YTPlayer?.getCurrentTime){
-    const i=getIndexAtTime(YTPlayer.getCurrentTime(), segsEn);
+    t = YTPlayer.getCurrentTime();
+    const i=getIndexAtTime(t, segsEn);
     if (i!==-1) setActive(i);
+    // 如果超出最后一句，至少写入最后一句一次
+    if (i===-1 && segsEn.length) setActive(segsEn.length-1);
   }
   if (curIdx===-1) return;
-  if (lastCapturedIdx===curIdx) return; // 避免重复写入
-  lastCapturedIdx=curIdx;
 
+  // 冷却：同一句在3秒内不重复写入，避免你连续暂停刷屏
+  if (lastCapturedIdx===curIdx && lastCapturedTime>=0 && Math.abs(t - lastCapturedTime) < 3) return;
+
+  lastCapturedIdx=curIdx; lastCapturedTime=t;
   const en=segsEn[curIdx]?.text||"", zh=segsZh[curIdx]?.text||"";
   $("#snippet").textContent = `${en}\n${zh}`;
   chatAdd("user", en + (zh?`\n${zh}`:""));
@@ -272,7 +328,7 @@ function pkgTemplateLocal({title, text, level}){
   };
 }
 
-/* ======= 右侧助手 ======= */
+/* ======= 右侧助手（OpenAI/DeepSeek/OpenRouter） ======= */
 function pickDefaultModel(base){
   const b=(base||"").toLowerCase();
   if (b.includes("deepseek.com")) return "deepseek-chat";
@@ -282,7 +338,6 @@ function pickDefaultModel(base){
 function getAIConfig(){
   const base = ($("#aiBase").value || "").trim();
   const key  = ($("#aiKey").value  || "").trim();
-  // 允许用户自定义模型（/model 指令或之前保存的值），否则按 Base 推断默认
   const savedModel = localStorage.getItem("ai_model") || "";
   const model = savedModel || pickDefaultModel(base);
   return { base, key, model };
@@ -320,7 +375,7 @@ async function chatSend(){
   }
 }
 
-/* ======= 练习/学习包 事件 ======= */
+/* ======= 包装/导出 ======= */
 function renderPackage(pkg){
   Store.up(s=>s.pkg[pkg.meta.title]=pkg);
   const list=$("#pkgList");
