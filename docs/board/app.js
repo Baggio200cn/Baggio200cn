@@ -1,5 +1,10 @@
 /* ========================================================================
-   TED 英语私教 Board — app.js（修复：切换素材/手动暂停采集/字幕合并更稳）
+   TED 英语私教 Board — app.js（段落采集 + 覆盖写入 + 一键送往测试）
+   - 暂停时采集“刚播放过的段落”（仅向过去聚合，防止串到下一句）
+   - 滚动字幕去重：合并时移除相邻片段重复的前后缀词组
+   - 覆盖写入：每次暂停覆盖上一条“片段消息”，而不是追加
+   - Alt+T 一键把当前片段（段落）跳到 /test/?autogen=1&text=... 自动出题
+   - 切换素材时销毁旧 YT 播放器；仍保留 DeepSeek/OpenAI 兼容、练习/学习包等
    ======================================================================== */
 
 /* ======= 小工具 / 存储 ======= */
@@ -67,7 +72,7 @@ function renderTalkList(){
       <div class="muted small">${t.videoId?`YT:${t.videoId} · `:""}${shortUrl(t.enUrl)} ${t.zhUrl?"· zh":""}</div>
     </div>`;
   }).join("") : `<div class="muted small">暂无素材。点击“添加素材”。</div>`;
-  // 事件委托：避免重渲染后监听器丢失
+  // 事件委托，避免重渲染后监听器丢失
   box.onclick = (e)=>{ const it=e.target.closest(".item"); if(it?.dataset.id) selectTalk(it.dataset.id); };
 }
 
@@ -99,82 +104,97 @@ function parsePlain(text){
 function toSec(h,m,s,ms){ return (+h)*3600+(+m)*60+(+s)+(+ms)/1000; }
 function fmt(sec){ const s=Math.floor(sec%60).toString().padStart(2,"0"), m=Math.floor((sec/60)%60).toString().padStart(2,"0"), h=Math.floor(sec/3600).toString().padStart(2,"0"); return (h!=="00"?h+":":"")+m+":"+s; }
 
-/* 更强的英文合并：按间隔/标点/功能词；控制最大长度与时长 */
-function mergeSegments(segs){
-  const merged=[]; const endPunc=/[.?!。”’'")、…]$/;
-  let buf=null;
-  for(const s of (segs||[])){
-    const text = (s.text||"").replace(/\s+/g," ").trim();
-    if(!text){ continue; }
-    if(!buf){ buf={start:s.start,end:s.end,text:text}; continue; }
-    const gap = s.start - buf.end;
-    const lastToken = buf.text.trim().split(/\s+/).pop()?.toLowerCase()||"";
-    const joinByGap = gap<=0.35; // 紧邻强制合并
-    const joinByNoPunc = !endPunc.test(buf.text.trim()) && gap<=1.0;
-    const joinByConnector = (CONNECTORS.has((text.split(/\s+/)[0]||"").toLowerCase()) && gap<=1.2);
-    const joinByShort = (buf.text.length<40 && text.length<20 && gap<=1.2);
-    const shouldJoin = joinByGap || joinByNoPunc || joinByConnector || joinByShort;
-    const tooLongChars = (buf.text.length + 1 + text.length) > 160;
-    const tooLongSecs  = (s.end - buf.start) > 8.0;
-    if(shouldJoin && !tooLongChars && !tooLongSecs){
-      buf.end = Math.max(buf.end, s.end);
-      buf.text = (buf.text + " " + text).replace(/\s+/g," ").trim();
-    }else{
-      merged.push(buf); buf={start:s.start,end:s.end,text:text};
-    }
-  }
-  if(buf) merged.push(buf);
-  return merged;
+/* —— 滚动字幕去重（最长后缀/前缀词重叠） —— */
+function toTokens(text){
+  return (text||"").toLowerCase().replace(/[^a-z0-9' ]+/g," ")
+    .replace(/\s+/g," ").trim().split(" ").filter(Boolean);
 }
-/* 中文按英文时间窗对齐合并 */
-function mergeZhByEn(enMerged, zhSegs){
-  if(!zhSegs?.length) return enMerged.map(x=>({start:x.start,end:x.end,text:""}));
-  const out=[]; let j=0;
-  for(const en of enMerged){
-    const texts=[];
-    while(j<zhSegs.length && zhSegs[j].end<=en.end+0.15){
-      if(zhSegs[j].start>=en.start-0.15) texts.push(zhSegs[j].text);
-      j++;
-    }
-    out.push({start:en.start,end:en.end,text:texts.join(" ").replace(/\s+/g," ").trim()});
+function joinDedupe(prev, next){
+  const A = toTokens(prev), B = toTokens(next);
+  const maxK = Math.min(12, A.length, B.length);
+  for(let k=maxK;k>=2;k--){ // 至少重叠2词才算滚动重复
+    let ok=true; for(let i=0;i<k;i++){ if(A[A.length-k+i]!==B[i]){ ok=false; break; } }
+    if(ok){ const bRest=B.slice(k).join(" "); return (prev+" "+bRest).replace(/\s+/g," ").trim(); }
   }
-  return out;
+  // 轻量字符重叠兜底（<=20字符）
+  const aTail = prev.slice(-20).toLowerCase().replace(/\s+/g," ").trim();
+  const bHead = next.slice(0,20).toLowerCase().replace(/\s+/g," ").trim();
+  if (aTail && bHead && aTail===bHead){ return (prev + next.slice(20)).replace(/\s+/g," ").trim(); }
+  return (prev + " " + next).replace(/\s+/g," ").trim();
 }
 
-/* 时间→索引：超末尾则“最近上一句”；开头之前返回 -1 */
+/* —— 时间→索引（超末尾取最近上一句） —— */
 function getIndexAtTime(t,segs){
   if(!segs || !segs.length) return -1;
-  let i=segs.findIndex(s=>t>=s.start-0.15 && t<=s.end+0.35);
+  let i=segs.findIndex(s=>t>=s.start-0.12 && t<=s.end+0.20);
   if(i!==-1) return i;
-  for(let k=segs.length-1;k>=0;k--) if(t>=segs[k].start-0.15) return k;
+  for(let k=segs.length-1;k>=0;k--) if(t>=segs[k].start-0.12) return k;
   return -1;
+}
+
+/* —— “仅向过去”聚合成段落（不跨到将来） —— */
+function buildPastParagraphAtTime(t){
+  const endPunc=/[.?!。”’'")、…]$/;
+  const i=getIndexAtTime(t,segsEn);
+  if (i===-1) return {en:"",zh:"",from:-1,to:-1,start:0,end:0};
+
+  let from=i, to=i;
+  let acc = (segsEn[i]?.text||"").trim();
+  let startTime=segsEn[i].start, endTime=segsEn[i].end;
+
+  const MAX_CHARS=240, MAX_SECS=9.0, MAX_SEGS=6;
+
+  let mergedCount=0;
+  for(let j=i-1; j>=0 && mergedCount<MAX_SEGS; j--){
+    const prev = segsEn[j];
+    const gap = startTime - prev.end;
+    const prevEndsPunc = endPunc.test((prev.text||"").trim());
+
+    // 到达明显句边界或超出窗口就停
+    if ((prevEndsPunc && gap>0.45) || (endTime - prev.start > MAX_SECS)) break;
+
+    // 去重后尝试拼接
+    const merged = joinDedupe(prev.text||"", acc);
+    if (merged.length > MAX_CHARS && mergedCount>=1) break;
+
+    acc = merged;
+    startTime = Math.min(startTime, prev.start);
+    from = j;
+    mergedCount++;
+
+    // 若前一段是句末且很贴近，则到此为止（保守不再继续向前）
+    if (prevEndsPunc && gap<=0.45) break;
+  }
+
+  const zh = segsZh.length ? segsZh.slice(from,to+1).map(s=>s.text).join(" ").replace(/\s+/g," ").trim() : "";
+  return {en:acc, zh, from, to, start:startTime, end:endTime};
 }
 
 /* ======= 播放/联动 ======= */
 let YTPlayer=null, segsEn=[], segsZh=[], curIdx=-1;
-let lastCapturedIdx=-1, lastCapturedTime=-1;
 let isAutoPausing=false, autoPausePref=false;
+let lastClipMsgEl=null; // 覆盖写入：保存上一条暂停采集的消息 DOM
+let lastCapturedKey="";  // 防误判重复
 
 async function loadTalk(){
   const talk=Store.data.talks.find(t=>t.id===Store.data.current); if(!talk) return;
 
-  // 显式销毁旧播放器（修复切换素材后仍播放旧视频）
+  // 销毁旧播放器，避免切换素材失败
   try{ if (YTPlayer && typeof YTPlayer.destroy==="function"){ YTPlayer.destroy(); } }catch{} YTPlayer=null;
 
-  // 重置 UI
+  // 重置
   $("#timeline").innerHTML=""; $("#snippet").textContent=""; $("#sub-en").textContent=$("#sub-zh").textContent="";
-  segsEn=[]; segsZh=[]; curIdx=-1; lastCapturedIdx=-1; lastCapturedTime=-1;
+  segsEn=[]; segsZh=[]; curIdx=-1; lastClipMsgEl=null; lastCapturedKey="";
 
-  // 解析字幕
+  // 解析英文/中文
   const enRaw=await fetchText(talk.enUrl);
   const zhRaw=await fetchText(talk.zhUrl);
   const enSegsRaw = (/\.(srt|vtt)(\?|#|$)/i.test(talk.enUrl) || talk.enUrl.startsWith("local:")) ? parseSRT(enRaw) : parsePlain(enRaw||"");
   const zhSegsRaw = (zhRaw && ((/\.(srt|vtt)(\?|#|$)/i.test(talk.zhUrl)) || talk.zhUrl?.startsWith("local:"))) ? parseSRT(zhRaw) : [];
 
-  // 合并碎片 → 更完整的句子
-  const enMerged = mergeSegments(enSegsRaw||[]);
-  const zhMerged = mergeZhByEn(enMerged, zhSegsRaw||[]);
-  segsEn = enMerged; segsZh = zhMerged;
+  // 更保守的合并：这里保留你之前的策略（如需严格“句级”可进一步调小阈值）
+  segsEn = mergeSegments(enSegsRaw||[]);
+  segsZh = mergeZhByEn(segsEn, zhSegsRaw||[]);
 
   // 时间轴渲染 + 事件委托
   const tl=$("#timeline");
@@ -213,7 +233,74 @@ async function loadTalk(){
     box.innerHTML = `<div class="muted small" style="padding:8px">未提供视频ID。你仍可用“时间轴/练习/学习包”。</div>`;
   }
 
+  // 在“当前片段”区域注入一个“送往测试”按钮（若结构允许）
+  try{
+    if (!$("#btnToTest")){
+      const btn=document.createElement("button");
+      btn.id="btnToTest"; btn.textContent="送往测试"; btn.className="btn small";
+      btn.style.margin="6px 0";
+      const host=$("#snippet")?.parentElement;
+      host?.appendChild(btn);
+      btn.addEventListener("click", ()=> {
+        const txt=($("#snippet").textContent||"").trim();
+        if(!txt) return alert("暂无当前片段可发送");
+        window.open(buildTestUrl(txt), "_blank");
+      });
+    }
+  }catch{}
+
   $("#pkgList").innerHTML=""; $("#pkgContent").innerHTML="";
+}
+
+/* —— 合并（用于时间轴显示）/中文对齐：沿用上一版 —— */
+function mergeSegments(segs){
+  const merged=[]; const endPunc=/[.?!。”’'")、…]$/;
+  let buf=null;
+  for(const s of (segs||[])){
+    const text = (s.text||"").replace(/\s+/g," ").trim(); if(!text) continue;
+    if(!buf){ buf={start:s.start,end:s.end,text:text}; continue; }
+    const gap = s.start - buf.end;
+    const nextFirst = (text.split(/\s+/)[0]||"").toLowerCase();
+    const hardJoin = gap<=0.30;
+    const noPuncJoin = !endPunc.test(buf.text.trim()) && gap<=0.90;
+    const connectorJoin = CONNECTORS.has(nextFirst) && gap<=1.10;
+
+    // 若上一段已句末，只有检测到滚动重复时才合
+    let rollingOverlapOK = false;
+    if (endPunc.test(buf.text.trim())){
+      const A=toTokens(buf.text), B=toTokens(text);
+      const maxK = Math.min(12, A.length, B.length);
+      for(let k=maxK;k>=2;k--){
+        let ok=true; for(let i=0;i<k;i++){ if(A[A.length-k+i]!==B[i]){ ok=false; break; } }
+        if(ok){ rollingOverlapOK=true; break; }
+      }
+    }
+    const shouldJoin = hardJoin || noPuncJoin || connectorJoin || rollingOverlapOK;
+    const tooLongChars = (buf.text.length + 1 + text.length) > 140;
+    const tooLongSecs  = (s.end - buf.start) > 7.5;
+
+    if(shouldJoin && !tooLongChars && !tooLongSecs){
+      buf.end = Math.max(buf.end, s.end);
+      buf.text = joinDedupe(buf.text, text);
+    }else{
+      merged.push(buf); buf={start:s.start,end:s.end,text:text};
+    }
+  }
+  if(buf) merged.push(buf);
+  return merged;
+}
+function mergeZhByEn(enMerged, zhSegs){
+  if(!zhSegs?.length) return enMerged.map(x=>({start:x.start,end:x.end,text:""}));
+  const out=[]; let j=0;
+  for(const en of enMerged){
+    const texts=[];
+    while(j<zhSegs.length && zhSegs[j].end<=en.end+0.15){
+      if(zhSegs[j].start>=en.start-0.15) texts.push(zhSegs[j].text);
+      j++;
+    }
+    out.push({start:en.start,end:en.end,text:texts.join(" ").replace(/\s+/g," ").trim()});
+  }
+  return out;
 }
 
 function tick(){
@@ -221,19 +308,17 @@ function tick(){
   const t=YTPlayer.getCurrentTime(); const i=getIndexAtTime(t, segsEn); if (i!==-1) setActive(i);
   $("#sub-en").textContent = segsEn[curIdx]?.text || ""; $("#sub-zh").textContent = segsZh[curIdx]?.text || "";
 
-  // 可选“句末自动暂停”：仅暂停不写入
   if (autoPausePref && curIdx!==-1){
     const end=segsEn[curIdx].end;
     if (t>=end-0.02 && YTPlayer.getPlayerState()===YT.PlayerState.PLAYING){
-      isAutoPausing = true;
-      try { YTPlayer.pauseVideo(); } catch {}
+      isAutoPausing = true; try { YTPlayer.pauseVideo(); } catch {}
     }
   }
   requestAnimationFrame(tick);
 }
 
+/* —— 覆盖写入：暂停时按“过去段落”覆盖上一条 —— */
 function onPaused(){
-  // 自动暂停的“停”不写入
   if (isAutoPausing) { isAutoPausing = false; return; }
 
   let t = 0;
@@ -241,20 +326,38 @@ function onPaused(){
     t = YTPlayer.getCurrentTime();
     let i=getIndexAtTime(t, segsEn);
     if (i!==-1) setActive(i);
-    // 超过最后一句：兜底取最后一句
     if (i===-1 && segsEn.length) setActive(segsEn.length-1);
   }
-  if (curIdx===-1) return;
+  // 构造“刚播放过的段落”
+  const clip = buildPastParagraphAtTime(t);
+  if (!clip.en) return;
 
-  // 小冷却：同一句 1s 内不重复写入，避免连按暂停刷屏
-  if (lastCapturedIdx===curIdx && lastCapturedTime>=0 && Math.abs(t - lastCapturedTime) < 1) return;
+  // 生成唯一 key，避免同一时刻的重复写入
+  const key = `${clip.from}-${clip.to}-${Math.round(clip.start*100)}`;
+  if (key === lastCapturedKey) return;
+  lastCapturedKey = key;
 
-  lastCapturedIdx=curIdx; lastCapturedTime=t;
-  const en=segsEn[curIdx]?.text||"", zh=segsZh[curIdx]?.text||"";
-  $("#snippet").textContent = `${en}\n${zh}`;
-  chatAdd("user", en + (zh?`\n${zh}`:""));
+  // 覆盖“当前片段”与右侧聊天的上一条
+  const text = clip.en + (clip.zh?`\n${clip.zh}`:"");
+  $("#snippet").textContent = text;
+  chatSetClip(text);
 }
 
+/* —— 聊天：覆盖上一条“暂停采集”消息 —— */
+function chatSetClip(text){
+  const box=$("#chatBox");
+  if (lastClipMsgEl && box.contains(lastClipMsgEl)){
+    lastClipMsgEl.querySelector(".bubble").innerHTML = escapeHtml(text).replace(/\n/g,"<br>");
+  }else{
+    const el=document.createElement("div");
+    el.className="msg user"; el.dataset.kind="clip";
+    el.innerHTML=`<div class="role">你</div><div class="bubble">${escapeHtml(text).replace(/\n/g,"<br>")}</div>`;
+    box.appendChild(el); box.scrollTop=box.scrollHeight;
+    lastClipMsgEl = el;
+  }
+}
+
+/* —— 其它辅助： setActive/seekTo —— */
 function setActive(i){
   if (i===curIdx) return; curIdx=i;
   $$("#timeline .seg").forEach(el=>el.classList.toggle("active", +el.dataset.i===i));
@@ -265,7 +368,7 @@ function seekTo(i){
   if (YTPlayer?.seekTo){ YTPlayer.seekTo(segsEn[i].start+0.01, true); YTPlayer.playVideo(); }
 }
 
-/* ======= 练习 ======= */
+/* ======= 练习（保持不变） ======= */
 function transcriptText(){ return segsEn.map(x=>x.text).join(" "); }
 function buildVocab(text, n=40){
   const tokens=(text.match(/[A-Za-z']+/g)||[]).map(w=>w.toLowerCase());
@@ -357,7 +460,39 @@ async function chatSend(){
   }catch(e){ chatAdd("assistant","调用失败："+(e?.message||"请检查 API 配置或网络。")); }
 }
 
-/* ======= 导入对话框 / 偏好 / 控件 ======= */
+/* ======= 中文对齐/合并（从上一版复用） ======= */
+function mergeZhByEn(enMerged, zhSegs){
+  if(!zhSegs?.length) return enMerged.map(x=>({start:x.start,end:x.end,text:""}));
+  const out=[]; let j=0;
+  for(const en of enMerged){
+    const texts=[];
+    while(j<zhSegs.length && zhSegs[j].end<=en.end+0.15){
+      if(zhSegs[j].start>=en.start-0.15) texts.push(zhSegs[j].text);
+      j++;
+    }
+    out.push({start:en.start,end:en.end,text:texts.join(" ").replace(/\s+/g," ").trim()});
+  }
+  return out;
+}
+
+/* ======= 跳转测试 ======= */
+function buildTestUrl(text){
+  // /board/ → /test/（适配 GitHub Pages 的二级路径）
+  let base = location.origin + location.pathname;
+  base = base.replace(/\/board\/?$/, "/test/");
+  if (!/\/test\/?$/.test(base)) base = location.origin + "/test/";
+  return `${base}?autogen=1&text=${encodeURIComponent(text)}`;
+}
+// Alt+T 快捷键：把当前片段直接带到测试页
+document.addEventListener("keydown",(e)=>{
+  if (e.altKey && (e.key==="t" || e.key==="T")){
+    const txt=($("#snippet").textContent||"").trim();
+    if(!txt) return;
+    window.open(buildTestUrl(txt), "_blank");
+  }
+});
+
+/* ======= “添加素材”对话框 / 偏好 / 其它 ======= */
 function setHint(el, text, ok){
   el.textContent = text || "";
   el.classList.toggle("ok", !!ok);
@@ -424,6 +559,7 @@ function bind(){
   $("#btnPrev")?.addEventListener("click",()=>seekTo(Math.max(0,(curIdx||0)-1)));
   $("#btnNext")?.addEventListener("click",()=>seekTo(Math.min(segsEn.length-1,(curIdx||0)+1)));
   $("#btnSpeak")?.addEventListener("click",()=>{ const en=segsEn[curIdx]?.text||""; try{ const u=new SpeechSynthesisUtterance(en); const v=speechSynthesis.getVoices().find(x=>/en/i.test(x.lang))||speechSynthesis.getVoices()[0]; if(v) u.voice=v; u.lang=(v?.lang)||"en-US"; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch{} });
+
   // Practice
   $("#btnMakeVocab")?.addEventListener("click",()=>{ const n=+$("#vocabN").value||40; const v=buildVocab(transcriptText(), n); $("#vocabList").innerHTML=v.map(x=>`<div class="row between item"><div><b>${x.i}.</b> ${escapeHtml(x.w)}</div><div class="muted small">count:${x.c}</div></div>`).join(""); });
   $("#btnExportVocab")?.addEventListener("click",()=>{ const rows=["rank,word,count"]; $$("#vocabList .item").forEach((el,i)=>{ const word=el.querySelector("div").textContent.replace(/^\d+\.\s*/,"").trim(); const cnt=(el.querySelector(".muted")?.textContent||"").replace("count:","").trim(); rows.push(`${i+1},${word},${cnt}`); }); const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=(currentTalk()?.title||"vocab")+".csv"; a.click(); URL.revokeObjectURL(a.href); });
@@ -449,7 +585,7 @@ function bind(){
   if (savedScroll !== null) $("#autoScroll").checked = savedScroll === '1'; else $("#autoScroll").checked = true;
   $("#autoScroll")?.addEventListener("change",(e)=>localStorage.setItem('board_autoScroll', e.target.checked?'1':'0'));
 
-  // 偏好：“句末自动暂停”（默认关）
+  // 偏好：句末自动暂停（默认关）
   const savedAP = localStorage.getItem('board_autoPause');
   if (savedAP !== null) $("#autoPause").checked = savedAP === '1'; else $("#autoPause").checked = false;
   autoPausePref = $("#autoPause").checked;
