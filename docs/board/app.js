@@ -1,16 +1,12 @@
 /* ========================================================================
-   TED 英语私教 Board — app.js（修复版：切换素材/暂停采集/句子合并）
-   变更要点：
-   - 左栏素材点击切换：改为事件委托，避免重渲染后点击失效
-   - 暂停采集更稳：支持“末尾兜底 + 冷却写入（3s）”，避免不写入或重复刷屏
-   - 合并碎片字幕：按标点与时间间隔自动合并英文片段，并按时间窗口合并中文
-   - 仍保持：仅“手动暂停”时写入（默认关“句末自动暂停”），DeepSeek/OpenAI 自动模型，导入增强
+   TED 英语私教 Board — app.js（修复：切换素材/手动暂停采集/字幕合并更稳）
    ======================================================================== */
 
-/* ======= 工具与存储 ======= */
+/* ======= 小工具 / 存储 ======= */
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const STOP = new Set("the be to of and a in that have i it for not on with he as you do at this but his by from they we say her she or an will my one all would there their what so up out if about who get which go me when make can like no just him know take into your good some could them see other than then now look only come its over think also back after use two how our work first well way even new want because any these give day most us".split(" "));
+const CONNECTORS = new Set(["and","or","but","so","for","to","of","in","on","at","from","that","which","who","whom","than","as","if","then","when","while","because","although","though","until","before","after","since","with","without","about","around","across","over","under","into","onto","off","by","near","through","between","among","per","via","like"]);
 
 const Store = {
   key: "ted-board-v1",
@@ -35,29 +31,25 @@ function escapeReg(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
 function sample(a,n){ const x=a.slice(); const r=[]; while(r.length<Math.min(n,x.length)){ const i=Math.floor(Math.random()*x.length); r.push(x.splice(i,1)[0]); } return r; }
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
 
-/* ======= YT IFrame API 等待器（修复 YT 未定义） ======= */
+/* ======= YT IFrame API 等待器 ======= */
 let YTReadyPromise = null;
 function ensureYTReady() {
   if (window.YT && window.YT.Player) return Promise.resolve(true);
   if (!YTReadyPromise) {
     YTReadyPromise = new Promise((resolve) => {
       const prev = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = function() {
-        try { prev && prev(); } catch {}
-        resolve(true);
-      };
-      let tries = 0;
-      const timer = setInterval(() => {
-        if (window.YT && window.YT.Player) { clearInterval(timer); resolve(true); }
-        else if (++tries > 80) { clearInterval(timer); resolve(false); } // ~8s 兜底
-      }, 100);
+      window.onYouTubeIframeAPIReady = function(){ try{ prev && prev(); }catch{} resolve(true); };
+      let tries=0; const timer=setInterval(()=>{ 
+        if (window.YT && window.YT.Player){ clearInterval(timer); resolve(true); }
+        else if(++tries>80){ clearInterval(timer); resolve(false); }
+      },100);
     });
   }
   return YTReadyPromise;
 }
 function onYouTubeIframeAPIReady(){}
 
-/* ======= 素材库 ======= */
+/* ======= 素材列表 ======= */
 function addTalk({title, videoId="", enUrl="", zhUrl=""}) {
   const id=uid();
   Store.up(s=>s.talks.unshift({id, title, videoId, enUrl, zhUrl, addedAt:Date.now()}));
@@ -75,11 +67,8 @@ function renderTalkList(){
       <div class="muted small">${t.videoId?`YT:${t.videoId} · `:""}${shortUrl(t.enUrl)} ${t.zhUrl?"· zh":""}</div>
     </div>`;
   }).join("") : `<div class="muted small">暂无素材。点击“添加素材”。</div>`;
-  // 事件委托：解决“切换素材不生效”
-  box.onclick = (e)=>{
-    const it = e.target.closest(".item");
-    if (it && it.dataset.id) selectTalk(it.dataset.id);
-  };
+  // 事件委托：避免重渲染后监听器丢失
+  box.onclick = (e)=>{ const it=e.target.closest(".item"); if(it?.dataset.id) selectTalk(it.dataset.id); };
 }
 
 /* ======= 加载/解析/合并字幕 ======= */
@@ -110,37 +99,41 @@ function parsePlain(text){
 function toSec(h,m,s,ms){ return (+h)*3600+(+m)*60+(+s)+(+ms)/1000; }
 function fmt(sec){ const s=Math.floor(sec%60).toString().padStart(2,"0"), m=Math.floor((sec/60)%60).toString().padStart(2,"0"), h=Math.floor(sec/3600).toString().padStart(2,"0"); return (h!=="00"?h+":":"")+m+":"+s; }
 
-/* 合并规则： 
-   - 与上一句间隔 <= 0.35s 一定合并
-   - 或上一句末尾不是标点(.?!…)，且间隔 <= 1.0s 则合并
-   - 合并时收缩空白，避免“street  from” 这类断裂
-*/
+/* 更强的英文合并：按间隔/标点/功能词；控制最大长度与时长 */
 function mergeSegments(segs){
-  const merged=[];
-  const endPunc=/[.?!…。！？”’'"]$/;
+  const merged=[]; const endPunc=/[.?!。”’'")、…]$/;
   let buf=null;
   for(const s of (segs||[])){
-    if(!buf){ buf={start:s.start, end:s.end, text:s.text}; continue; }
+    const text = (s.text||"").replace(/\s+/g," ").trim();
+    if(!text){ continue; }
+    if(!buf){ buf={start:s.start,end:s.end,text:text}; continue; }
     const gap = s.start - buf.end;
-    const joinable = gap<=0.35 || (!endPunc.test(buf.text.trim()) && gap<=1.0);
-    if(joinable){
+    const lastToken = buf.text.trim().split(/\s+/).pop()?.toLowerCase()||"";
+    const joinByGap = gap<=0.35; // 紧邻强制合并
+    const joinByNoPunc = !endPunc.test(buf.text.trim()) && gap<=1.0;
+    const joinByConnector = (CONNECTORS.has((text.split(/\s+/)[0]||"").toLowerCase()) && gap<=1.2);
+    const joinByShort = (buf.text.length<40 && text.length<20 && gap<=1.2);
+    const shouldJoin = joinByGap || joinByNoPunc || joinByConnector || joinByShort;
+    const tooLongChars = (buf.text.length + 1 + text.length) > 160;
+    const tooLongSecs  = (s.end - buf.start) > 8.0;
+    if(shouldJoin && !tooLongChars && !tooLongSecs){
       buf.end = Math.max(buf.end, s.end);
-      buf.text = (buf.text + " " + s.text).replace(/\s+/g," ").trim();
+      buf.text = (buf.text + " " + text).replace(/\s+/g," ").trim();
     }else{
-      merged.push(buf); buf={start:s.start, end:s.end, text:s.text};
+      merged.push(buf); buf={start:s.start,end:s.end,text:text};
     }
   }
   if(buf) merged.push(buf);
   return merged;
 }
-// 依据英文合并段的时间窗口，把中文若干小段拼到一起（尽量对齐）
+/* 中文按英文时间窗对齐合并 */
 function mergeZhByEn(enMerged, zhSegs){
   if(!zhSegs?.length) return enMerged.map(x=>({start:x.start,end:x.end,text:""}));
   const out=[]; let j=0;
   for(const en of enMerged){
     const texts=[];
-    while(j<zhSegs.length && zhSegs[j].end<=en.end+0.1){
-      if(zhSegs[j].start>=en.start-0.1) texts.push(zhSegs[j].text);
+    while(j<zhSegs.length && zhSegs[j].end<=en.end+0.15){
+      if(zhSegs[j].start>=en.start-0.15) texts.push(zhSegs[j].text);
       j++;
     }
     out.push({start:en.start,end:en.end,text:texts.join(" ").replace(/\s+/g," ").trim()});
@@ -148,42 +141,42 @@ function mergeZhByEn(enMerged, zhSegs){
   return out;
 }
 
-/* 改进：超出最后一句也“夹取到最近上一句”；仅在第一句之前返回 -1 */
+/* 时间→索引：超末尾则“最近上一句”；开头之前返回 -1 */
 function getIndexAtTime(t,segs){
   if(!segs || !segs.length) return -1;
   let i=segs.findIndex(s=>t>=s.start-0.15 && t<=s.end+0.35);
   if(i!==-1) return i;
   for(let k=segs.length-1;k>=0;k--) if(t>=segs[k].start-0.15) return k;
-  return -1; // 在第一句前
+  return -1;
 }
 
-/* ======= 播放/界面联动 ======= */
-let YTPlayer, segsEn=[], segsZh=[], curIdx=-1;
+/* ======= 播放/联动 ======= */
+let YTPlayer=null, segsEn=[], segsZh=[], curIdx=-1;
 let lastCapturedIdx=-1, lastCapturedTime=-1;
-let isAutoPausing = false;     // 自动暂停标记：仅用来“跳过写入”
-let autoPausePref = false;     // 用户偏好（默认 false，仅手动暂停写入）
+let isAutoPausing=false, autoPausePref=false;
 
 async function loadTalk(){
   const talk=Store.data.talks.find(t=>t.id===Store.data.current); if(!talk) return;
+
+  // 显式销毁旧播放器（修复切换素材后仍播放旧视频）
+  try{ if (YTPlayer && typeof YTPlayer.destroy==="function"){ YTPlayer.destroy(); } }catch{} YTPlayer=null;
 
   // 重置 UI
   $("#timeline").innerHTML=""; $("#snippet").textContent=""; $("#sub-en").textContent=$("#sub-zh").textContent="";
   segsEn=[]; segsZh=[]; curIdx=-1; lastCapturedIdx=-1; lastCapturedTime=-1;
 
-  // 解析
+  // 解析字幕
   const enRaw=await fetchText(talk.enUrl);
   const zhRaw=await fetchText(talk.zhUrl);
-
   const enSegsRaw = (/\.(srt|vtt)(\?|#|$)/i.test(talk.enUrl) || talk.enUrl.startsWith("local:")) ? parseSRT(enRaw) : parsePlain(enRaw||"");
   const zhSegsRaw = (zhRaw && ((/\.(srt|vtt)(\?|#|$)/i.test(talk.zhUrl)) || talk.zhUrl?.startsWith("local:"))) ? parseSRT(zhRaw) : [];
 
-  // 合并碎片字幕
+  // 合并碎片 → 更完整的句子
   const enMerged = mergeSegments(enSegsRaw||[]);
   const zhMerged = mergeZhByEn(enMerged, zhSegsRaw||[]);
-  segsEn = enMerged;
-  segsZh = zhMerged;
+  segsEn = enMerged; segsZh = zhMerged;
 
-  // 时间轴
+  // 时间轴渲染 + 事件委托
   const tl=$("#timeline");
   if (segsEn.length){
     tl.innerHTML = segsEn.map((s,i)=>`<div class="seg" data-i="${i}">
@@ -193,7 +186,6 @@ async function loadTalk(){
   }else{
     tl.innerHTML = `<div class="muted small">未能加载英文内容（请检查 URL 或改用“上传文件”）。</div>`;
   }
-  // 时间轴点击跳播（事件委托）
   tl.onclick = (e)=>{ const seg=e.target.closest(".seg"); if(seg) seekTo(+seg.dataset.i); };
 
   // 播放器
@@ -229,7 +221,7 @@ function tick(){
   const t=YTPlayer.getCurrentTime(); const i=getIndexAtTime(t, segsEn); if (i!==-1) setActive(i);
   $("#sub-en").textContent = segsEn[curIdx]?.text || ""; $("#sub-zh").textContent = segsZh[curIdx]?.text || "";
 
-  // 自动暂停（可选），仅暂停不写入
+  // 可选“句末自动暂停”：仅暂停不写入
   if (autoPausePref && curIdx!==-1){
     const end=segsEn[curIdx].end;
     if (t>=end-0.02 && YTPlayer.getPlayerState()===YT.PlayerState.PLAYING){
@@ -241,21 +233,21 @@ function tick(){
 }
 
 function onPaused(){
-  // 自动暂停：只停止，不写入
+  // 自动暂停的“停”不写入
   if (isAutoPausing) { isAutoPausing = false; return; }
 
   let t = 0;
   if (YTPlayer?.getCurrentTime){
     t = YTPlayer.getCurrentTime();
-    const i=getIndexAtTime(t, segsEn);
+    let i=getIndexAtTime(t, segsEn);
     if (i!==-1) setActive(i);
-    // 如果超出最后一句，至少写入最后一句一次
+    // 超过最后一句：兜底取最后一句
     if (i===-1 && segsEn.length) setActive(segsEn.length-1);
   }
   if (curIdx===-1) return;
 
-  // 冷却：同一句在3秒内不重复写入，避免你连续暂停刷屏
-  if (lastCapturedIdx===curIdx && lastCapturedTime>=0 && Math.abs(t - lastCapturedTime) < 3) return;
+  // 小冷却：同一句 1s 内不重复写入，避免连按暂停刷屏
+  if (lastCapturedIdx===curIdx && lastCapturedTime>=0 && Math.abs(t - lastCapturedTime) < 1) return;
 
   lastCapturedIdx=curIdx; lastCapturedTime=t;
   const en=segsEn[curIdx]?.text||"", zh=segsZh[curIdx]?.text||"";
@@ -333,7 +325,7 @@ function pickDefaultModel(base){
   const b=(base||"").toLowerCase();
   if (b.includes("deepseek.com")) return "deepseek-chat";
   if (b.includes("openrouter.ai")) return "openai/gpt-4o-mini";
-  return "gpt-4o-mini"; // OpenAI 默认
+  return "gpt-4o-mini";
 }
 function getAIConfig(){
   const base = ($("#aiBase").value || "").trim();
@@ -349,74 +341,23 @@ function chatAdd(role, text){
 }
 async function chatSend(){
   let t=$("#chatInput").value.trim(); if(!t) return;
-  // 支持指令：/model <name>
-  if (t.toLowerCase().startsWith("/model ")){
-    const m=t.slice(7).trim();
-    if (m){ localStorage.setItem("ai_model", m); chatAdd("assistant", `模型已切换为：${m}`); }
-    $("#chatInput").value=""; return;
-  }
-
+  if (t.toLowerCase().startsWith("/model ")){ const m=t.slice(7).trim(); if(m){ localStorage.setItem("ai_model", m); chatAdd("assistant", `模型已切换为：${m}`); } $("#chatInput").value=""; return; }
   $("#chatInput").value=""; chatAdd("user", t);
   const {base,key,model} = getAIConfig();
   if (!key || !base){ chatAdd("assistant","离线模式：未配置 API Base/Key。"); return; }
-
   try{
     const context = `Context title: ${currentTalk()?.title||""}. Current sentence: ${($("#snippet").textContent||"").slice(0,200)}`;
     const r = await fetch(base.replace(/\/+$/,"")+"/chat/completions",{
-      method:"POST",
-      headers:{"Content-Type":"application/json", Authorization:`Bearer ${key}`},
+      method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${key}`},
       body:JSON.stringify({ model, messages:[{role:"user", content: `${context}\n\nUser: ${t}`}] })
     });
     const j=await r.json();
     const msg = j?.choices?.[0]?.message?.content || j?.error?.message || JSON.stringify(j).slice(0,1200);
     chatAdd("assistant", msg);
-  }catch(e){
-    chatAdd("assistant","调用失败："+(e?.message||"请检查 API 配置或网络。"));
-  }
+  }catch(e){ chatAdd("assistant","调用失败："+(e?.message||"请检查 API 配置或网络。")); }
 }
 
-/* ======= 包装/导出 ======= */
-function renderPackage(pkg){
-  Store.up(s=>s.pkg[pkg.meta.title]=pkg);
-  const list=$("#pkgList");
-  list.innerHTML = pkg.sections.map(sec=>`<li><label><input type="checkbox" checked> ${escapeHtml(sec.name)}</label></li>`).join("");
-  const cont=$("#pkgContent");
-  cont.innerHTML = pkg.sections.map(sec=>`<section><h4>${escapeHtml(sec.name)}</h4><pre class="snippet">${escapeHtml(sec.content)}</pre></section>`).join("");
-}
-function exportMarkdown(pkg){
-  const lines = [`# ${pkg.meta.title} — Learning Package (${pkg.meta.mode})`, `Level: ${pkg.meta.level}`, ""];
-  pkg.sections.forEach(sec=>{ lines.push(`## ${sec.name}`,"", sec.content, ""); });
-  const blob = new Blob([lines.join("\n")], {type:"text/markdown;charset=utf-8"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`${pkg.meta.title.replace(/\s+/g,'_')}_package.md`; a.click(); URL.revokeObjectURL(a.href);
-}
-async function pkgTemplateLLM({title, text, level}){
-  const {base,key,model} = getAIConfig();
-  if (!key || !base) throw new Error("No API key or base");
-  const prompt = `You are an English tutor. Create a bilingual learning package for the talk titled "${title}". Level: ${level}.
-Return Markdown sections with headings:
-1) Video Information
-2) Speaker Biography
-3) Key Vocabulary (with English definitions and Chinese)
-4) Key Phrases & Expressions (with meanings and CN)
-5) Full Transcript (keep original, no translation)
-6) Discussion Questions (8)
-7) Key Takeaways (7)
-8) Learning Objectives (clear, measurable)
-Use concise bullet lists. Transcript source (truncated if too long):
-${text.slice(0,4000)}`;
-  const r = await fetch(base.replace(/\/+$/,"")+"/chat/completions",{
-    method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${key}` },
-    body: JSON.stringify({ model, messages:[{role:"user", content: prompt}] })
-  });
-  const j = await r.json();
-  const md = j?.choices?.[0]?.message?.content || j?.error?.message || "Error generating package.";
-  return {
-    meta: { title, level, mode:"llm" },
-    sections: [{ key:"package_md", name:"Learning Package (LLM)", content: md }]
-  };
-}
-
-/* ======= “添加素材”对话框：外链检测 + 上传 ======= */
+/* ======= 导入对话框 / 偏好 / 控件 ======= */
 function setHint(el, text, ok){
   el.textContent = text || "";
   el.classList.toggle("ok", !!ok);
@@ -433,7 +374,6 @@ function bindDialog(){
   $("#btnAdd")?.addEventListener("click",()=>$("#dlgTalk").showModal());
   $("#btnPickEn")?.addEventListener("click",()=>$("#fEnFile").click());
   $("#btnPickZh")?.addEventListener("click",()=>$("#fZhFile").click());
-
   $("#fEnFile")?.addEventListener("change", async (e)=>{
     const f=e.target.files?.[0]; if(!f) return;
     const text = await f.text(); const ext = (f.name.split(".").pop()||"txt").toLowerCase();
@@ -450,10 +390,8 @@ function bindDialog(){
     setHint($("#zhStatus"), `本地文件：${f.name}`, true);
     e.target.value="";
   });
-
   $("#btnTestEn")?.addEventListener("click",()=>testUrl($("#fEn").value.trim(), $("#enStatus")));
   $("#btnTestZh")?.addEventListener("click",()=>testUrl($("#fZh").value.trim(), $("#zhStatus")));
-
   $("#btnFillSample")?.addEventListener("click", ()=>{
     $("#fTitle").value = "外链测试素材（raw.githubusercontent.com）";
     $("#fVid").value = "gN9dlisaQVM";
@@ -462,7 +400,6 @@ function bindDialog(){
     setHint($("#enStatus"), "示例外链", true);
     setHint($("#zhStatus"), "示例外链", true);
   });
-
   $("#btnSaveTalk")?.addEventListener("click",(e)=>{
     e.preventDefault();
     const title=$("#fTitle").value.trim();
@@ -477,19 +414,16 @@ function bindDialog(){
   });
 }
 
-/* ======= Tabs / 导入导出 / 偏好 / 控件绑定 ======= */
 function bind(){
   // Tabs
   $$(".tab").forEach(btn=>btn.addEventListener("click",()=>{
     $$(".tab").forEach(b=>b.classList.remove("active")); btn.classList.add("active");
     const name=btn.dataset.tab; $$(".panel").forEach(p=>p.classList.add("hide")); $("#panel-"+name).classList.remove("hide");
   }));
-
   // 播控
   $("#btnPrev")?.addEventListener("click",()=>seekTo(Math.max(0,(curIdx||0)-1)));
   $("#btnNext")?.addEventListener("click",()=>seekTo(Math.min(segsEn.length-1,(curIdx||0)+1)));
   $("#btnSpeak")?.addEventListener("click",()=>{ const en=segsEn[curIdx]?.text||""; try{ const u=new SpeechSynthesisUtterance(en); const v=speechSynthesis.getVoices().find(x=>/en/i.test(x.lang))||speechSynthesis.getVoices()[0]; if(v) u.voice=v; u.lang=(v?.lang)||"en-US"; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch{} });
-
   // Practice
   $("#btnMakeVocab")?.addEventListener("click",()=>{ const n=+$("#vocabN").value||40; const v=buildVocab(transcriptText(), n); $("#vocabList").innerHTML=v.map(x=>`<div class="row between item"><div><b>${x.i}.</b> ${escapeHtml(x.w)}</div><div class="muted small">count:${x.c}</div></div>`).join(""); });
   $("#btnExportVocab")?.addEventListener("click",()=>{ const rows=["rank,word,count"]; $$("#vocabList .item").forEach((el,i)=>{ const word=el.querySelector("div").textContent.replace(/^\d+\.\s*/,"").trim(); const cnt=(el.querySelector(".muted")?.textContent||"").replace("count:","").trim(); rows.push(`${i+1},${word},${cnt}`); }); const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=(currentTalk()?.title||"vocab")+".csv"; a.click(); URL.revokeObjectURL(a.href); });
@@ -515,7 +449,7 @@ function bind(){
   if (savedScroll !== null) $("#autoScroll").checked = savedScroll === '1'; else $("#autoScroll").checked = true;
   $("#autoScroll")?.addEventListener("change",(e)=>localStorage.setItem('board_autoScroll', e.target.checked?'1':'0'));
 
-  // 偏好：“句末自动暂停”（默认关，仅手动暂停写入）
+  // 偏好：“句末自动暂停”（默认关）
   const savedAP = localStorage.getItem('board_autoPause');
   if (savedAP !== null) $("#autoPause").checked = savedAP === '1'; else $("#autoPause").checked = false;
   autoPausePref = $("#autoPause").checked;
@@ -527,7 +461,6 @@ function bind(){
   $("#aiBase")?.addEventListener("change",(e)=>{ const v=(e.target.value||"").trim(); if (v) localStorage.setItem('ai_base', v); else localStorage.removeItem('ai_base'); });
   $("#aiKey")?.addEventListener("change",(e)=>{ const v=(e.target.value||"").trim(); if (v) localStorage.setItem('ai_key', v); else localStorage.removeItem('ai_key'); });
 
-  // 绑定“添加素材”对话框行为
   bindDialog();
 }
 
